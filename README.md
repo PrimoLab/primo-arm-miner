@@ -15,14 +15,12 @@ of the last decade.
 
 ## Features
 
-✅ **Pure ARM Native Implementation** - native Verus, SHA256d, and scrypt paths with no SSE compatibility shim
-✅ **ccminer-Compatible Control Surface** - compatible CLI and JSON configuration flow
-✅ **Smaller Binary Footprint** - optimized release builds stay lean; exact size depends on toolchain and LTO profile
-✅ **Validated Verus Pipeline** - project-native ARM crypto cores integrated with ccminer-compatible behavior
-✅ **Native Crypto Extensions** - Hardware ARMv8-a PMULL, AES & SHA2 (`-march=armv8-a+crypto`)
-✅ **Multi-threaded** - Efficient work distribution
-✅ **Stratum Protocol** - Full equihash/verus stratum support
-✅ **ARM NEON Scrypt** - Native scrypt implementation for Litecoin-style mining
+- **Pure ARM-native implementation** — Verus, SHA256d, and scrypt paths written for ARM, no SSE compatibility shim
+- **Hardware crypto extensions** — ARMv8 PMULL, AES, and SHA2 instructions on the hot paths
+- **Per-core runtime optimization** — big.LITTLE topology detected at startup; interleaved CLHash and SoA scrypt kernels enabled per thread where they win
+- **ccminer-compatible control surface** — same CLI flags, JSON config format, and monitoring API
+- **Full stratum support** — standard (SHA256d/scrypt) and Verus/equihash variants, multi-pool failover
+- **Tiny footprint** — a single ~170 KB binary, three runtime libraries
 
 ## Performance
 
