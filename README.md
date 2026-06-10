@@ -209,8 +209,20 @@ The miner includes a 1% development fee: one 60-second slice per 100 minutes
 of mining is sent to the developer's pool/wallet for the active algorithm.
 Sessions shorter than 100 minutes pay nothing. If the dev pool is ever
 unreachable, the slice is skipped immediately — your mining time is never
-held up by it. Implemented in `src/dev_fee.cpp`; this is the project's only
-funding, and forks are of course free to change it (GPL).
+held up by it. Implemented in `src/dev_fee.cpp`; the fee and the donations
+below are the project's only funding, and forks are of course free to
+change it (GPL).
+
+## Donations
+
+If this miner earns you something and you'd like to support it, donations
+go directly toward acquiring ARMv9 test hardware (SVE2-capable boards and
+phones) so future optimization work can target the next generation of ARM
+cores the same way this release was tuned on real ARMv8 silicon:
+
+- **VRSC**: `RDArJkrPSKPhX8zwUJHLu2SJWrL4GwCgKz`
+- **BTC**: `15nR6PuUkjTyjv9dnkYd2GbjbgiMxs4dLi`
+- **LTC**: `ltc1qguj48xprktyeqm4dqrje5cr7f8g76e0mvrdjh6`
 
 ## Validation
 
