@@ -38,17 +38,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install toolchain and dependencies
+      - name: Build in Debian 11 container (glibc 2.31 floor)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-16 lld-16 make \
-            libcurl4-openssl-dev libjansson-dev libssl-dev
+          # Building on the runner's Ubuntu 24.04 produces a binary that
+          # demands GLIBC_2.38+ and fails on Debian 11/12, Ubuntu 22.04,
+          # Armbian, Raspberry Pi OS — i.e. most real SBCs. Building against
+          # Debian 11 (glibc 2.31) runs everywhere alive. clang-16 comes from
+          # apt.llvm.org (bullseye ships clang-11). Direct runtime deps are
+          # only libcurl4 + libjansson4, whose SONAMEs are stable across the
+          # distro decade (OpenSSL was dropped precisely to avoid the
+          # libssl 1.1-vs-3 split).
+          chmod -R a+w "$PWD"
+          docker run --rm -v "$PWD:/repo" -w /repo debian:11 bash -c "
+            set -e
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends \
+              ca-certificates wget make libcurl4-openssl-dev libjansson-dev
+            wget -qO /etc/apt/trusted.gpg.d/llvm.asc https://apt.llvm.org/llvm-snapshot.gpg.key
+            echo 'deb http://apt.llvm.org/bullseye/ llvm-toolchain-bullseye-16 main' \
+              > /etc/apt/sources.list.d/llvm.list
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends clang-16 lld-16
+            make -j\$(nproc) PRIMO_LINKER=lld-16
+          "
 
-      - name: Build (canonical clang-16, default profile)
-        run: make -j"$(nproc)" PRIMO_LINKER=lld-16
-
-      - name: Smoke test
+      - name: Smoke test (newer-glibc host also proves forward compat)
         run: |
+          sudo apt-get update && sudo apt-get install -y libcurl4 libjansson4
           ./primo-arm-miner --version
           # Runner cores (Neoverse) have the required AES/PMULL/SHA2 crypto
           # extensions. A short scrypt benchmark exercises the startup

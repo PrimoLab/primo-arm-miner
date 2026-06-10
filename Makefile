@@ -53,7 +53,7 @@ PRIMO_CPPFLAGS = $(COMMON_CPPFLAGS)
 PRIMO_CFLAGS = $(BASE_ARCH_FLAGS) $(COMMON_OPT_FLAGS) -std=gnu11
 PRIMO_CXXFLAGS = $(BASE_ARCH_FLAGS) $(COMMON_OPT_FLAGS) -funroll-loops -std=c++14
 PRIMO_LDFLAGS = -flto -pthread
-PRIMO_LDLIBS = -lcurl -ljansson -lssl -lcrypto -lm
+PRIMO_LDLIBS = -lcurl -ljansson -lm
 
 ifneq ($(CC_IS_CLANG),)
 PRIMO_CFLAGS += -mllvm -enable-loop-distribute

@@ -61,9 +61,9 @@ URL="${PRIMO_DOWNLOAD_URL:-https://github.com/$PRIMO_REPO/releases/latest/downlo
 
 install_deps() {
     if [ "$IS_TERMUX" = 1 ]; then
-        info "Installing runtime libraries (libcurl, libjansson, openssl)..."
-        pkg install -y --no-upgrade libcurl libjansson openssl \
-            || warn "pkg install failed — if the miner won't start, run: pkg install libcurl libjansson openssl"
+        info "Installing runtime libraries (libcurl, libjansson)..."
+        pkg install -y --no-upgrade libcurl libjansson \
+            || warn "pkg install failed — if the miner won't start, run: pkg install libcurl libjansson"
         return
     fi
 
@@ -74,7 +74,7 @@ install_deps() {
         $SUDO apt-get install -y libcurl4 libjansson4 \
             || warn "apt install failed — if the miner won't start, install libcurl4 and libjansson4 manually"
     else
-        warn "No supported package manager found. The miner needs runtime libraries: libcurl, libjansson, libssl/libcrypto."
+        warn "No supported package manager found. The miner needs runtime libraries: libcurl and libjansson."
     fi
 }
 

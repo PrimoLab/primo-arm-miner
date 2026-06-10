@@ -58,7 +58,7 @@ make clean && make -j"$(nproc)"
 - ARM CPU with crypto extensions (ARMv8+)
 - `make` build defaults to `clang-16` / `clang++-16` with `lld`
 - Alternate compatible Clang driver names can be selected with `CC=...`, `CXX=...`, and `PRIMO_LINKER=...`
-- libcurl, libjansson, libssl
+- libcurl, libjansson
 
 Examples:
 

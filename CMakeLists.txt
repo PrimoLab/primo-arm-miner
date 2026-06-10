@@ -44,7 +44,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${PRIMO_BASE_ARCH_FLAGS} ${PRIMO_COMMON_
 
 # Find required libraries
 find_package(CURL REQUIRED)
-find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 
 # Find jansson (JSON library)
@@ -60,7 +59,6 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src
     ${CURL_INCLUDE_DIRS}
-    ${OPENSSL_INCLUDE_DIR}
     ${JANSSON_INCLUDE_DIR}
 )
 
@@ -108,7 +106,6 @@ set_source_files_properties(
 # Link libraries
 target_link_libraries(primo-arm-miner
     ${CURL_LIBRARIES}
-    ${OPENSSL_LIBRARIES}
     ${JANSSON_LIBRARY}
     Threads::Threads
     m

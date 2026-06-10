@@ -11,8 +11,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <openssl/evp.h>
-#include <openssl/sha.h>
 #include <poll.h>
 #include <pthread.h>
 #include <stdarg.h>
@@ -455,9 +453,91 @@ static int api_send_response(int fd, const char *response)
     return api_send_all(fd, response, strlen(response)) ? 0 : -1;
 }
 
+/* Minimal SHA-1 (RFC 3174) and base64, used only for the WebSocket upgrade
+ * handshake (Sec-WebSocket-Accept). Replaces the former OpenSSL dependency —
+ * the only two libcrypto calls in the project — so release binaries are not
+ * tied to a specific libssl SONAME (1.1 vs 3 split across distro releases).
+ * Not used for any mining-related hashing. */
+#define API_SHA1_DIGEST_LENGTH 20
+
+static void api_sha1(const unsigned char *data, size_t len, unsigned char digest[API_SHA1_DIGEST_LENGTH])
+{
+    uint32_t h[5] = { 0x67452301u, 0xEFCDAB89u, 0x98BADCFEu, 0x10325476u, 0xC3D2E1F0u };
+    uint64_t bit_len = (uint64_t)len * 8;
+    /* Message + 0x80 + zero pad + 8-byte length, in 64-byte blocks. The
+     * handshake input is ~60 bytes, so a small stack buffer suffices. */
+    size_t padded = ((len + 8) / 64 + 1) * 64;
+    unsigned char block[64];
+
+    for (size_t offset = 0; offset < padded; offset += 64) {
+        for (size_t i = 0; i < 64; i++) {
+            size_t pos = offset + i;
+            if (pos < len)
+                block[i] = data[pos];
+            else if (pos == len)
+                block[i] = 0x80;
+            else if (pos >= padded - 8)
+                block[i] = (unsigned char)(bit_len >> (8 * (padded - 1 - pos)));
+            else
+                block[i] = 0;
+        }
+
+        uint32_t w[80];
+        for (int i = 0; i < 16; i++) {
+            w[i] = ((uint32_t)block[i * 4] << 24) | ((uint32_t)block[i * 4 + 1] << 16) |
+                   ((uint32_t)block[i * 4 + 2] << 8) | (uint32_t)block[i * 4 + 3];
+        }
+        for (int i = 16; i < 80; i++) {
+            uint32_t v = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16];
+            w[i] = (v << 1) | (v >> 31);
+        }
+
+        uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+        for (int i = 0; i < 80; i++) {
+            uint32_t f, k;
+            if (i < 20)      { f = (b & c) | ((~b) & d);         k = 0x5A827999u; }
+            else if (i < 40) { f = b ^ c ^ d;                    k = 0x6ED9EBA1u; }
+            else if (i < 60) { f = (b & c) | (b & d) | (c & d);  k = 0x8F1BBCDCu; }
+            else             { f = b ^ c ^ d;                    k = 0xCA62C1D6u; }
+            uint32_t tmp = ((a << 5) | (a >> 27)) + f + e + k + w[i];
+            e = d; d = c; c = (b << 30) | (b >> 2); b = a; a = tmp;
+        }
+        h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
+    }
+
+    for (int i = 0; i < 5; i++) {
+        digest[i * 4]     = (unsigned char)(h[i] >> 24);
+        digest[i * 4 + 1] = (unsigned char)(h[i] >> 16);
+        digest[i * 4 + 2] = (unsigned char)(h[i] >> 8);
+        digest[i * 4 + 3] = (unsigned char)(h[i]);
+    }
+}
+
+static void api_base64_encode(const unsigned char *in, size_t in_len, char *out)
+{
+    static const char tbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t i, o = 0;
+
+    for (i = 0; i + 2 < in_len; i += 3) {
+        uint32_t v = ((uint32_t)in[i] << 16) | ((uint32_t)in[i + 1] << 8) | in[i + 2];
+        out[o++] = tbl[(v >> 18) & 63]; out[o++] = tbl[(v >> 12) & 63];
+        out[o++] = tbl[(v >> 6) & 63];  out[o++] = tbl[v & 63];
+    }
+    if (i + 1 == in_len) {
+        uint32_t v = (uint32_t)in[i] << 16;
+        out[o++] = tbl[(v >> 18) & 63]; out[o++] = tbl[(v >> 12) & 63];
+        out[o++] = '='; out[o++] = '=';
+    } else if (i + 2 == in_len) {
+        uint32_t v = ((uint32_t)in[i] << 16) | ((uint32_t)in[i + 1] << 8);
+        out[o++] = tbl[(v >> 18) & 63]; out[o++] = tbl[(v >> 12) & 63];
+        out[o++] = tbl[(v >> 6) & 63];  out[o++] = '=';
+    }
+    out[o] = '\0';
+}
+
 static int api_send_websocket_response(int fd, const char *response, const char *client_key)
 {
-    unsigned char digest[SHA_DIGEST_LENGTH];
+    unsigned char digest[API_SHA1_DIGEST_LENGTH];
     unsigned char frame_header[10];
     char accept_input[128];
     char accept_key[64];
@@ -469,8 +549,8 @@ static int api_send_websocket_response(int fd, const char *response, const char 
         return -1;
 
     snprintf(accept_input, sizeof(accept_input), "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", client_key);
-    SHA1((const unsigned char *)accept_input, strlen(accept_input), digest);
-    EVP_EncodeBlock((unsigned char *)accept_key, digest, SHA_DIGEST_LENGTH);
+    api_sha1((const unsigned char *)accept_input, strlen(accept_input), digest);
+    api_base64_encode(digest, API_SHA1_DIGEST_LENGTH, accept_key);
 
     snprintf(handshake, sizeof(handshake),
              "HTTP/1.1 101 Switching Protocol\r\n"
