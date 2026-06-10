@@ -1,6 +1,6 @@
 # Primo ARM Miner
 
-A minimal, ARM-optimized multi-algorithm cryptocurrency miner with a ccminer-compatible CLI and configuration surface.
+A minimal, pure ARM-native multi-algorithm cryptocurrency miner — no x86 compatibility layer — with a ccminer-compatible CLI and configuration surface.
 
 ## Quick Install (Linux arm64 / Termux)
 
@@ -15,7 +15,7 @@ of the last decade.
 
 ## Features
 
-- **Pure ARM-native implementation** — Verus, SHA256d, and scrypt paths written for ARM, no SSE compatibility shim
+- **Pure ARM-native, no x86 compatibility layer** — Verus, SHA256d, and scrypt paths written directly in ARM intrinsics and AArch64 assembly, not translated from SSE
 - **Hardware crypto extensions** — ARMv8 PMULL, AES, and SHA2 instructions on the hot paths
 - **Per-core runtime optimization** — big.LITTLE topology detected at startup; interleaved CLHash and SoA scrypt kernels enabled per thread where they win
 - **ccminer-compatible control surface** — same CLI flags, JSON config format, and monitoring API
