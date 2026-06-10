@@ -17,33 +17,96 @@ info() { echo "==> $*"; }
 # ── Dependencies ──────────────────────────────────────────────────────────────
 
 info "Installing build dependencies..."
-pkg update -y
-pkg install -y clang lld make curl libjansson openssl
+# Index refresh is best-effort — a stale mirror won't block the build if the
+# packages are already installed.  --no-upgrade prevents apt trying to fetch a
+# newer version that the mirror may not carry yet.
+pkg update -y || info "pkg update failed (stale mirror?) — continuing with cached index"
+pkg install -y --no-upgrade clang lld make curl libjansson openssl
 
 # ── Resolve compiler ──────────────────────────────────────────────────────────
 #
 # If CLANG_PREFIX is set (e.g. from build_clang16_termux.sh), use that clang.
 # Otherwise fall back to whatever 'clang' is on PATH (Termux default).
+#
+# Auto-prefer the from-source clang-16 when present: it is the project's
+# canonical compiler and is ~5% faster on Verus than Termux's default clang
+# (measured 4.86 vs 4.61 MH/s heat-soaked on Exynos 9820, clang-16 vs clang-21).
+# A bare `bash build_termux.sh` must NOT silently produce a slow binary.
+# To force the PATH clang instead, run with PRIMO_FORCE_PATH_CLANG=1.
+if [ -z "${CLANG_PREFIX:-}" ] && [ -z "${PRIMO_FORCE_PATH_CLANG:-}" ] \
+   && [ -x "$HOME/clang-16/bin/clang" ]; then
+    CLANG_PREFIX="$HOME/clang-16"
+    info "Auto-selected from-source clang-16 at $CLANG_PREFIX"
+    info "(set PRIMO_FORCE_PATH_CLANG=1 to use the slower default PATH clang)"
+fi
 
 if [ -n "${CLANG_PREFIX:-}" ]; then
-    CLANG_BIN="$CLANG_PREFIX/bin/clang"
-    CLANGXX_BIN="$CLANG_PREFIX/bin/clang++"
-    LLD_BIN="$CLANG_PREFIX/bin/ld.lld"
-    [ -x "$CLANG_BIN" ] || die "CLANG_PREFIX set but $CLANG_BIN not found"
-    info "Using CLANG_PREFIX: $CLANG_PREFIX"
+    CLANG16_C="$CLANG_PREFIX/bin/clang"
+    CLANG16_CXX="$CLANG_PREFIX/bin/clang++"
+    [ -x "$CLANG16_C" ] || die "CLANG_PREFIX set but $CLANG16_C not found"
+    info "Using CLANG_PREFIX: $CLANG_PREFIX (clang-16 compile + link, LTO enabled)"
 
-    # A clang built from source doesn't have the Termux sysroot path baked in.
-    # Wrap it so every invocation gets --sysroot automatically.
+    # clang-16 was built for aarch64-unknown-linux-gnu, but with --target and
+    # --sysroot it can drive a full Android/Bionic link: it finds Android CRT
+    # objects, shared libraries, and its own lld-16 links the LTO IR it emitted.
+    # This enables full -flto end-to-end (clang-16 IR → lld-16 — version match).
+
+    # Ensure ld.lld symlink exists (ninja install-lld installs 'lld'; the ELF
+    # driver is 'ld.lld' which clang looks for when resolving -fuse-ld= paths).
+    if [ ! -x "$CLANG_PREFIX/bin/ld.lld" ]; then
+        ln -sf "$CLANG_PREFIX/bin/lld" "$CLANG_PREFIX/bin/ld.lld"
+        info "Created $CLANG_PREFIX/bin/ld.lld symlink"
+    fi
+
     TERMUX_USR="${PREFIX:-/data/data/com.termux/files/usr}"
+    ARCH_INC="$TERMUX_USR/include/aarch64-linux-android"
     WRAPPER_DIR="$(pwd)/.clang16-wrappers"
     mkdir -p "$WRAPPER_DIR"
-    printf '#!/bin/sh\nexec "%s" --sysroot="%s" "$@"\n' \
-        "$CLANG_BIN" "$TERMUX_USR" > "$WRAPPER_DIR/clang"
-    printf '#!/bin/sh\nexec "%s" --sysroot="%s" "$@"\n' \
-        "$CLANGXX_BIN" "$TERMUX_USR" > "$WRAPPER_DIR/clang++"
-    chmod +x "$WRAPPER_DIR/clang" "$WRAPPER_DIR/clang++"
+
+    # Symlink Termux's compiler-rt Android builtins into clang-16's resource
+    # tree.  This lets clang-16's linker driver find
+    # libclang_rt.builtins-aarch64-android.a without replacing clang-16's own
+    # compiler headers (which would break compilation).
+    CLANG16_RSRC=$("$CLANG16_C" -print-resource-dir 2>/dev/null || true)
+    TERMUX_RSRC=$("$TERMUX_USR/bin/clang" -print-resource-dir 2>/dev/null || true)
+    if [ -n "$CLANG16_RSRC" ] && [ -n "$TERMUX_RSRC" ] && [ -d "$TERMUX_RSRC/lib/linux" ]; then
+        mkdir -p "$CLANG16_RSRC/lib"
+        ln -sfn "$TERMUX_RSRC/lib/linux" "$CLANG16_RSRC/lib/linux"
+        info "Linked Termux compiler-rt -> $CLANG16_RSRC/lib/linux"
+    fi
+
+    COMPILE_FLAGS="--target=aarch64-linux-android33 --sysroot=$TERMUX_USR"
+    [ -d "$ARCH_INC" ] && COMPILE_FLAGS="$COMPILE_FLAGS -isystem $ARCH_INC"
+    # /system/lib64 is needed for Android bionic stubs (libm, libc, libdl) that
+    # clang-16 adds implicitly for --target=aarch64-linux-android33.  These live
+    # in the Android system image, not in the Termux prefix.  No rpath needed
+    # for /system/lib64 — Android's dynamic linker always searches it.
+    LINK_EXTRA="-L$TERMUX_USR/lib -L/system/lib64 -Wl,-rpath,$TERMUX_USR/lib"
+
+    # Single wrapper: clang-16 for both compile and link.
+    # Keep -L/-Wl flags out of compile-only steps to avoid "unused arg" noise.
+    for _ext in clang clang++; do
+        if [ "$_ext" = "clang" ]; then
+            _c16="$CLANG16_C"
+        else
+            _c16="$CLANG16_CXX"
+        fi
+        cat > "$WRAPPER_DIR/$_ext" << EOF
+#!/bin/sh
+_link=1
+for _a; do case "\$_a" in -c|-E|-S|-M|-MM) _link=0; break;; esac; done
+if [ "\$_link" = "1" ]; then
+  exec "$_c16" $COMPILE_FLAGS $LINK_EXTRA "\$@"
+else
+  exec "$_c16" $COMPILE_FLAGS "\$@"
+fi
+EOF
+        chmod +x "$WRAPPER_DIR/$_ext"
+    done
+
     CLANG_BIN="$WRAPPER_DIR/clang"
     CLANGXX_BIN="$WRAPPER_DIR/clang++"
+    LLD_BIN="$CLANG_PREFIX/bin/ld.lld"   # → PRIMO_LINKER → -fuse-ld= in Makefile
 else
     CLANG_BIN=clang
     CLANGXX_BIN=clang++
@@ -68,7 +131,7 @@ info "Detected clang $CLANG_MAJOR"
 #
 # The Makefile's CC/CXX are overridden on the make command line (it uses
 # $(origin) guards), so no patching is needed for the compiler name.
-# PRIMO_LINKER=lld is passed explicitly to keep LTO working via lld.
+# PRIMO_LINKER=lld is passed so the Makefile doesn't hardcode a linker path.
 
 # Save the original once (idempotent — subsequent runs regenerate from it)
 [ -f "$MAKEFILE_ORIG" ] || cp Makefile "$MAKEFILE_ORIG"
@@ -76,15 +139,27 @@ info "Detected clang $CLANG_MAJOR"
 info "Patching Makefile for Termux..."
 sed \
     -e '/-Wl,-hugetlbfs-align/d' \
-    -e 's/-march=armv8-a+crypto/-march=armv8-a+crypto+sha2+crc/' \
+    -e 's/-march=armv8-a+crypto/-march=armv8.2-a+crypto/' \
     -e 's/-O3/-Ofast/' \
-    -e 's/-falign-functions=16/-falign-functions=64 -finline-functions/' \
+    -e 's/-falign-functions=16/-falign-functions=32/' \
+    -e 's/-mfix-cortex-a53-835769[[:space:]]*//' \
     "$MAKEFILE_ORIG" > Makefile
+# Changes vs desktop Makefile:
+#   -march=armv8.2-a+crypto  : enables post-2018 arch (fp16, RAS, etc.) without
+#      dotprod — dotprod isn't used by Verus hotpath (PMULL/AES only), and
+#      Samsung Exynos M4 dotprod support is uncertain
+#   -mtune=cortex-a53 kept   : empirically faster on both RK3588 and Exynos 9820
+#      (Samsung Mongoose M4 has no clang scheduling model; a53 generates shorter
+#      dependency chains that fit PMULL/AES latency chains better than a76)
+#   -falign-functions=32     : 64 wastes I-cache; 32 is better for tight
+#      haraka/clhash loops compiled with -fno-unroll-loops
+#   -mfix-cortex-a53-835769 removed  : errata NOP overhead — phone CPUs never had it
 
 if [ "$CLANG_MAJOR" -lt 13 ]; then
     info "clang $CLANG_MAJOR: removing unsupported -ffinite-loops"
     sed -i 's/-ffinite-loops[[:space:]]*//' Makefile
 fi
+
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
@@ -105,8 +180,9 @@ echo "  Verus:   ./$BINARY -a verus   -o stratum+tcp://pool.verus.io:9998 -u WAL
 echo "  SHA256d: ./$BINARY -a sha256d -o stratum+tcp://POOL:PORT -u USER.worker -t $JOBS"
 echo "  Scrypt:  ./$BINARY -a scrypt  -o stratum+tcp://POOL:PORT -u USER.worker -t $JOBS"
 echo ""
-echo "Note: -mtune=cortex-a53 is in the Makefile — validated for heterogeneous SoCs"
-echo "(RK3588, SD855). Edit BASE_ARCH_FLAGS to change tuning."
+echo "Note: -mtune=cortex-a53 is kept — empirically fastest on heterogeneous SoCs"
+echo "including Exynos 9820 (Mongoose M4 has no clang model; a53 fits PMULL/AES"
+echo "latency chains better than a76 on both RK3588 and Exynos)."
 echo ""
 echo "To use clang-16 (recommended — empirically faster on ARM):"
 echo "  CLANG_PREFIX=\$HOME/clang-16 bash build_termux.sh"
