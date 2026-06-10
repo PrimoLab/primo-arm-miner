@@ -80,23 +80,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build inside Termux container
+      - name: Build and smoke test inside Termux container
         run: |
           # termux-docker provides a real Termux userland (bionic libc, pkg).
           # Native arm64 host, so no qemu emulation. build_termux.sh installs
           # its own deps and tolerates stale package mirrors.
+          # Build and smoke share ONE container session: the runtime libraries
+          # installed for the build must be present when the binary runs.
           # The container's 'system' user (uid 1000) must be able to write the
           # runner-owned (uid 1001) bind-mounted workspace.
           chmod -R a+w "$PWD"
           docker run --rm -v "$PWD:/repo" -w /repo \
             termux/termux-docker:aarch64 \
-            bash -lc "yes | pkg update || true; bash build_termux.sh"
-
-      - name: Smoke test inside Termux container
-        run: |
-          docker run --rm -v "$PWD:/repo" -w /repo \
-            termux/termux-docker:aarch64 \
             bash -lc "
+              yes | pkg update || true
+              bash build_termux.sh &&
               ./primo-arm-miner --version &&
               (timeout 25 ./primo-arm-miner --benchmark -a scrypt -t 2 2>&1 | tee smoke.log || true) &&
               grep -q 'Scrypt self-test passed' smoke.log
