@@ -36,7 +36,7 @@ jobs:
   linux-arm64:
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build in Debian 11 container (glibc 2.31 floor)
         run: |
@@ -94,7 +94,7 @@ jobs:
   android-arm64:
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build and smoke test inside Termux container
         run: |

@@ -357,6 +357,19 @@ static inline void stratum_is_verus_protocol_store(struct stratum_ctx *sctx, boo
 void applog(int prio, const char *fmt, ...);
 // Share-difficulty helper (miner.cpp) used by the scanhash back ends.
 void bn_store_share_difficulty(uint32_t *hash, uint32_t *target, struct work *work, int nonce);
+
+/* True if the 256-bit value `hash` is <= `target`, both as little-endian
+ * word arrays (word 7 = most significant). Shared full-compare for the
+ * scanhash back ends; callers keep their own cheap word-7 prefilter ahead
+ * of this so the hot reject path never reaches the loop. */
+static inline bool hash_le_target(const uint32_t *hash, const uint32_t *target)
+{
+    for (int i = 7; i >= 0; i--) {
+        if (hash[i] > target[i]) return false;
+        if (hash[i] < target[i]) return true;
+    }
+    return true; /* exactly equal */
+}
 void format_hashrate(double hashrate, char *output, size_t output_size);
 bool hex2bin(void *output, const char *hexstr, size_t len);
 char *bin2hex(const unsigned char *in, size_t len);

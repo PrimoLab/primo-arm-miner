@@ -18,6 +18,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <arm_neon.h>
+#include "byteorder.h"
 
 /* ARMv8 crypto extensions for SHA256 */
 #ifdef __ARM_FEATURE_CRYPTO
@@ -34,18 +35,7 @@
  * Eliminates 16 redundant loads at the Salsa boundary by keeping state in registers. */
 extern void scrypt_blockmix_asm(uint32_t *B);
 
-/* Byte order helpers (needed by both hardware and software paths) */
-static inline void scrypt_be32enc(void *pp, uint32_t x) {
-    uint8_t *p = (uint8_t *)pp;
-    p[0] = (x >> 24) & 0xff; p[1] = (x >> 16) & 0xff;
-    p[2] = (x >> 8) & 0xff;  p[3] = x & 0xff;
-}
 
-static inline void scrypt_le32enc(void *pp, uint32_t x) {
-    uint8_t *p = (uint8_t *)pp;
-    p[0] = x & 0xff;         p[1] = (x >> 8) & 0xff;
-    p[2] = (x >> 16) & 0xff; p[3] = (x >> 24) & 0xff;
-}
 
 /*============================================================================
  * ARMv8 Hardware SHA-256 (when available)
@@ -1095,21 +1085,9 @@ void scrypt_1024_1_1_256(const uint8_t *input, uint8_t *output,
 #include "miner.h"
 #include "cpu_features.h"
 
-extern bool opt_debug;
-
 /* Debug flag - reset when job changes */
 static int scrypt_debug_printed = 0;
 static char scrypt_last_job[128] = "";
-
-/* Helper: check hash against target, return 1 if valid share */
-static inline int check_hash_target(uint32_t *hash, uint32_t *ptarget) {
-    if (hash[7] > ptarget[7]) return 0;
-    for (int i = 7; i >= 0; i--) {
-        if (hash[i] > ptarget[i]) return 0;
-        if (hash[i] < ptarget[i]) return 1;
-    }
-    return 1;  /* exact match */
-}
 
 /* Record a found share. Mirrors the historical inline block exactly. */
 static void scrypt_record_share(struct work *work, uint32_t *pdata,
@@ -1147,11 +1125,11 @@ int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_hashes,
 
     /* Construct 80-byte block header templates (nonce patched per iteration) */
     for (int i = 0; i < 9; i++)
-        scrypt_be32enc(header_a + i * 4, pdata[i]);
+        be32enc(header_a + i * 4, pdata[i]);
     for (int i = 9; i < 17; i++)
-        scrypt_le32enc(header_a + i * 4, pdata[i]);
+        le32enc(header_a + i * 4, pdata[i]);
     for (int i = 17; i < 20; i++)
-        scrypt_be32enc(header_a + i * 4, pdata[i]);
+        be32enc(header_a + i * 4, pdata[i]);
     memcpy(header_b, header_a, 80);
 
     /* Debug: print first hash and target once per job (only if -D flag) */
@@ -1216,16 +1194,16 @@ int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_hashes,
         while (remaining_hashes >= 4 &&
                !miner_work_restart_requested(work->restart_generation) &&
                !miner_should_abort()) {
-            scrypt_be32enc(header_a + 76, n);
-            scrypt_be32enc(header_b + 76, n + 1);
-            scrypt_be32enc(header_c + 76, n + 2);
-            scrypt_be32enc(header_d + 76, n + 3);
+            be32enc(header_a + 76, n);
+            be32enc(header_b + 76, n + 1);
+            be32enc(header_c + 76, n + 2);
+            be32enc(header_d + 76, n + 3);
 
             scrypt_core_soa4(pass, hout, scratchpad);
 
             for (int l = 0; l < 4; l++) {
                 if (hashes[l][7] <= ptarget[7] &&
-                    check_hash_target(hashes[l], ptarget) &&
+                    hash_le_target(hashes[l], ptarget) &&
                     work->valid_nonces < MAX_NONCES) {
                     scrypt_record_share(work, pdata, ptarget, hashes[l], n + (uint32_t)l);
                 }
@@ -1245,17 +1223,17 @@ int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_hashes,
     while (remaining_hashes >= 2 && work->valid_nonces == 0 &&
            !miner_work_restart_requested(work->restart_generation) &&
            !miner_should_abort()) {
-        scrypt_be32enc(header_a + 76, n);
-        scrypt_be32enc(header_b + 76, n + 1);
+        be32enc(header_a + 76, n);
+        be32enc(header_b + 76, n + 1);
         scrypt_1024_1_1_256_dual(header_a, header_b,
                                   (uint8_t *)hash_a, (uint8_t *)hash_b,
                                   scratchpad);
 
-        if (hash_a[7] <= ptarget[7] && check_hash_target(hash_a, ptarget)) {
+        if (hash_a[7] <= ptarget[7] && hash_le_target(hash_a, ptarget)) {
             scrypt_record_share(work, pdata, ptarget, hash_a, n);
         }
 
-        if (hash_b[7] <= ptarget[7] && check_hash_target(hash_b, ptarget) &&
+        if (hash_b[7] <= ptarget[7] && hash_le_target(hash_b, ptarget) &&
             work->valid_nonces < MAX_NONCES) {
             scrypt_record_share(work, pdata, ptarget, hash_b, n + 1);
         }
@@ -1271,9 +1249,9 @@ int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_hashes,
     if (remaining_hashes > 0 &&
         !miner_work_restart_requested(work->restart_generation) &&
         !miner_should_abort() && work->valid_nonces == 0) {
-        scrypt_be32enc(header_a + 76, n);
+        be32enc(header_a + 76, n);
         scrypt_1024_1_1_256(header_a, (uint8_t *)hash_a, NULL, scratchpad);
-        if (hash_a[7] <= ptarget[7] && check_hash_target(hash_a, ptarget)) {
+        if (hash_a[7] <= ptarget[7] && hash_le_target(hash_a, ptarget)) {
             scrypt_record_share(work, pdata, ptarget, hash_a, n);
         }
         n++;

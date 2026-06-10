@@ -17,6 +17,7 @@
  */
 
 #include <sha256_neon.h>
+#include <byteorder.h>
 #include <string.h>
 #include <arm_neon.h>
 #if defined(__linux__)
@@ -63,28 +64,6 @@ static const uint32_t H256_INIT[8] = {
 /*============================================================================
  * Utility Functions
  *============================================================================*/
-
-static inline uint32_t be32dec(const void *pp) {
-    const uint8_t *p = (const uint8_t *)pp;
-    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-           ((uint32_t)p[2] << 8) | (uint32_t)p[3];
-}
-
-static inline void be32enc(void *pp, uint32_t x) {
-    uint8_t *p = (uint8_t *)pp;
-    p[0] = (x >> 24) & 0xff;
-    p[1] = (x >> 16) & 0xff;
-    p[2] = (x >> 8) & 0xff;
-    p[3] = x & 0xff;
-}
-
-static inline void le32enc(void *pp, uint32_t x) {
-    uint8_t *p = (uint8_t *)pp;
-    p[0] = x & 0xff;
-    p[1] = (x >> 8) & 0xff;
-    p[2] = (x >> 16) & 0xff;
-    p[3] = (x >> 24) & 0xff;
-}
 
 /*============================================================================
  * SHA-256 Core Functions (Software Implementation)
@@ -1093,6 +1072,37 @@ void sha256d_dual_fallback(
     sha256_transform_u32_dual(stateA_out, W2A, stateB_out, W2B);
 }
 
+/* Record a found SHA256d share. `state` is the raw big-endian SHA256d output,
+ * `hash_le` its little-endian form. Cold path (only runs on a winning nonce);
+ * factored from the previously-duplicated nonce-A/B blocks. */
+static void sha256d_record_share(struct work *work, uint32_t *pdata, uint32_t *ptarget,
+                                 const uint32_t *state, uint32_t *hash_le,
+                                 uint8_t *header, uint32_t nonce)
+{
+    pdata[19] = nonce;
+    work->nonces[work->valid_nonces] = nonce;
+    bn_store_share_difficulty(hash_le, ptarget, work, work->valid_nonces);
+    applog(LOG_INFO, "SHA256d: Found nonce %08x!", nonce);
+
+    if (opt_debug) {
+        uint8_t hash_bytes[32];
+        for (int i = 0; i < 8; i++)
+            be32enc(hash_bytes + i * 4, state[i]);
+        be32enc(header + 76, nonce);
+        char *hash_hex = bin2hex(hash_bytes, 32);
+        char *header_hex = bin2hex(header, 80);
+        applog(LOG_DEBUG, "  Header (80 bytes): %s", header_hex);
+        applog(LOG_DEBUG, "  Hash (raw): %s", hash_hex);
+        applog(LOG_DEBUG, "  hash[7..4]=%08x %08x %08x %08x target[7..4]=%08x %08x %08x %08x",
+               hash_le[7], hash_le[6], hash_le[5], hash_le[4],
+               ptarget[7], ptarget[6], ptarget[5], ptarget[4]);
+        free(hash_hex);
+        free(header_hex);
+    }
+
+    work->valid_nonces++;
+}
+
 int scanhash_sha256d(int thr_id, struct work *work, uint32_t max_hashes,
                      unsigned long *hashes_done)
 {
@@ -1205,35 +1215,8 @@ int scanhash_sha256d(int thr_id, struct work *work, uint32_t max_hashes,
             for (int i = 0; i < 8; i++)
                 hash_le[i] = __builtin_bswap32(stateA[i]);
 
-            int valid = 1;
-            for (int i = 7; i >= 0; i--) {
-                if (hash_le[i] > ptarget[i]) { valid = 0; break; }
-                if (hash_le[i] < ptarget[i]) break;
-            }
-            if (valid) {
-                pdata[19] = n;
-                work->nonces[work->valid_nonces] = n;
-                bn_store_share_difficulty(hash_le, ptarget, work, work->valid_nonces);
-                applog(LOG_INFO, "SHA256d: Found nonce %08x!", n);
-
-                if (opt_debug) {
-                    uint8_t hash_bytes[32];
-                    for (int i = 0; i < 8; i++)
-                        be32enc(hash_bytes + i * 4, stateA[i]);
-                    be32enc(header + 76, n);
-                    char *hash_hex = bin2hex(hash_bytes, 32);
-                    char *header_hex = bin2hex(header, 80);
-                    applog(LOG_DEBUG, "  Header (80 bytes): %s", header_hex);
-                    applog(LOG_DEBUG, "  Hash (raw): %s", hash_hex);
-                    applog(LOG_DEBUG, "  hash[7..4]=%08x %08x %08x %08x target[7..4]=%08x %08x %08x %08x",
-                           hash_le[7], hash_le[6], hash_le[5], hash_le[4],
-                           ptarget[7], ptarget[6], ptarget[5], ptarget[4]);
-                    free(hash_hex);
-                    free(header_hex);
-                }
-
-                work->valid_nonces++;
-            }
+            if (hash_le_target(hash_le, ptarget))
+                sha256d_record_share(work, pdata, ptarget, stateA, hash_le, header, n);
         }
 
         /* Check nonce B */
@@ -1242,35 +1225,8 @@ int scanhash_sha256d(int thr_id, struct work *work, uint32_t max_hashes,
             for (int i = 0; i < 8; i++)
                 hash_le[i] = __builtin_bswap32(stateB[i]);
 
-            int valid = 1;
-            for (int i = 7; i >= 0; i--) {
-                if (hash_le[i] > ptarget[i]) { valid = 0; break; }
-                if (hash_le[i] < ptarget[i]) break;
-            }
-            if (valid && work->valid_nonces < MAX_NONCES) {
-                pdata[19] = n + 1;
-                work->nonces[work->valid_nonces] = n + 1;
-                bn_store_share_difficulty(hash_le, ptarget, work, work->valid_nonces);
-                applog(LOG_INFO, "SHA256d: Found nonce %08x!", n + 1);
-
-                if (opt_debug) {
-                    uint8_t hash_bytes[32];
-                    for (int i = 0; i < 8; i++)
-                        be32enc(hash_bytes + i * 4, stateB[i]);
-                    be32enc(header + 76, n + 1);
-                    char *hash_hex = bin2hex(hash_bytes, 32);
-                    char *header_hex = bin2hex(header, 80);
-                    applog(LOG_DEBUG, "  Header (80 bytes): %s", header_hex);
-                    applog(LOG_DEBUG, "  Hash (raw): %s", hash_hex);
-                    applog(LOG_DEBUG, "  hash[7..4]=%08x %08x %08x %08x target[7..4]=%08x %08x %08x %08x",
-                           hash_le[7], hash_le[6], hash_le[5], hash_le[4],
-                           ptarget[7], ptarget[6], ptarget[5], ptarget[4]);
-                    free(hash_hex);
-                    free(header_hex);
-                }
-
-                work->valid_nonces++;
-            }
+            if (hash_le_target(hash_le, ptarget) && work->valid_nonces < MAX_NONCES)
+                sha256d_record_share(work, pdata, ptarget, stateB, hash_le, header, n + 1);
         }
 
         n += 2;
@@ -1298,12 +1254,7 @@ int scanhash_sha256d(int thr_id, struct work *work, uint32_t max_hashes,
             for (int i = 0; i < 8; i++)
                 hash_le[i] = __builtin_bswap32(state[i]);
 
-            int valid = 1;
-            for (int i = 7; i >= 0; i--) {
-                if (hash_le[i] > ptarget[i]) { valid = 0; break; }
-                if (hash_le[i] < ptarget[i]) break;
-            }
-            if (valid) {
+            if (hash_le_target(hash_le, ptarget)) {
                 pdata[19] = n;
                 work->nonces[work->valid_nonces] = n;
                 bn_store_share_difficulty(hash_le, ptarget, work, work->valid_nonces);

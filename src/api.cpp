@@ -812,7 +812,12 @@ static char *build_summary_response(char *out, size_t out_size, const char *para
     if (pool_snapshot.work_ready)
         diff = pool_snapshot.current_work.targetdiff;
 
-    uptime = g_api_startup_time ? difftime(now, g_api_startup_time) : 0.0;
+    /* UPTIME is mining uptime (ccminer semantics), measured from when mining
+     * started — not from when the API server thread came up. Falls back to API
+     * uptime only if the mining clock isn't running yet. */
+    uptime = miner_snapshot.runtime_active
+        ? difftime(now, miner_snapshot.start_time)
+        : (g_api_startup_time ? difftime(now, g_api_startup_time) : 0.0);
     accepted_per_minute = uptime > 0.0
         ? (60.0 * pool_snapshot.runtime_stats.share_accepted_total) / uptime
         : 0.0;

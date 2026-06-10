@@ -312,15 +312,12 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	 * the full 8-word comparison passed — i.e. the scan should stop (mirrors
 	 * the original goto-out semantics, including the slots-full case). */
 	auto try_record_share = [&](uint32_t *chash, const uint8_t *nspace) -> bool {
+		/* Cheap word-7 prefilter (hoisted target) rejects almost every
+		 * hash before the full compare; only near-solutions reach it. */
 		if (chash[7] > target_word_high)
 			return false;
-		/* Full 8-word comparison to reject false positives from the
-		 * single-word prefilter. Word 7 already passed; check 6..0.
-		 * A false positive falls through so the caller continues the scan. */
-		for (int w = 6; w >= 0; w--) {
-			if (chash[w] > ptarget[w]) return false;
-			if (chash[w] < ptarget[w]) break;
-		}
+		if (!hash_le_target(chash, ptarget))
+			return false;
 		if (work->valid_nonces < MAX_NONCES) {
 			work->valid_nonces++;
 			memcpy(work->data, serialized_job, kHeaderBytes);

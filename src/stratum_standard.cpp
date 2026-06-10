@@ -4,6 +4,7 @@
 
 #include "stratum_internal.h"
 #include "sha256_neon.h"
+#include "byteorder.h"
 
 struct standard_notify_view {
     const char *job_id;
@@ -34,18 +35,7 @@ struct standard_job_update {
 
 static void build_standard_work(const struct stratum_ctx *sctx, struct work *new_work);
 
-static inline uint32_t le32dec_local(const void *pp)
-{
-    const uint8_t *p = (const uint8_t *)pp;
-    return ((uint32_t)(p[0]) + ((uint32_t)(p[1]) << 8) +
-        ((uint32_t)(p[2]) << 16) + ((uint32_t)(p[3]) << 24));
-}
 
-static inline uint16_t le16dec_local(const void *pp)
-{
-    const uint8_t *p = (const uint8_t *)pp;
-    return ((uint16_t)(p[0]) + ((uint16_t)(p[1]) << 8));
-}
 
 /**
  * Extract block height     L H... here len=3, height=0x1333e8
@@ -83,13 +73,13 @@ static uint32_t get_block_height(const uint8_t *coinbase, size_t coinbase_size)
         p++;
         hlen = *p;
         p++;
-        height = le16dec_local(p);
+        height = le16dec(p);
         p += 2;
         switch (hlen) {
         case 4:
             if ((size_t)(scan_end - p) < 2)
                 return 0;
-            height += 0x10000UL * le16dec_local(p);
+            height += 0x10000UL * le16dec(p);
             break;
         case 3:
             if (p >= scan_end)
@@ -373,13 +363,13 @@ static void build_standard_work(const struct stratum_ctx *sctx, struct work *new
         free(xnonce2_hex);
     }
 
-    new_work->data[0] = le32dec_local(sctx->job.version);
+    new_work->data[0] = le32dec(sctx->job.version);
     for (int i = 0; i < 8; i++)
-        new_work->data[1 + i] = le32dec_local(sctx->job.prevhash + i * 4);
+        new_work->data[1 + i] = le32dec(sctx->job.prevhash + i * 4);
     for (int i = 0; i < 8; i++)
-        new_work->data[9 + i] = le32dec_local(merkle_root + i * 4);
-    new_work->data[17] = le32dec_local(sctx->job.ntime);
-    new_work->data[18] = le32dec_local(sctx->job.nbits);
+        new_work->data[9 + i] = le32dec(merkle_root + i * 4);
+    new_work->data[17] = le32dec(sctx->job.ntime);
+    new_work->data[18] = le32dec(sctx->job.nbits);
     new_work->data[19] = 0;
 
     memcpy(new_work->xnonce2, sctx->job.xnonce2, sctx->xnonce2_size);
