@@ -4,7 +4,6 @@
 
 #include "stratum_internal.h"
 
-#define JSON_SUBMIT_BUF_LEN (4 * 1024)
 #define EQNONCE_OFFSET 30
 #define VERUS_NONCE_FIELD_BYTES 32
 #define VERUS_SUBMIT_SOLUTION_SIZE 1347
@@ -321,7 +320,7 @@ static bool apply_verus_notify(struct stratum_ctx *sctx, const struct verus_noti
     new_coinbase = NULL;
 
     if (!stratum_commit_job_update(sctx, apply_verus_job_locked, build_verus_work, &update,
-                                   msg->clean, STRATUM_RESTART_TRACK_CHANGES)) {
+                                   msg->clean)) {
         goto out;
     }
     if (update.await_height_message && opt_debug) {

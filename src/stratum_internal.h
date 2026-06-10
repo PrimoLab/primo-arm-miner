@@ -25,11 +25,6 @@ struct stratum_protocol_ops {
     bool (*submit_share)(struct pool_infos *pool, struct work *work);
 };
 
-enum stratum_restart_policy {
-    STRATUM_RESTART_ALWAYS = 0,
-    STRATUM_RESTART_TRACK_CHANGES,
-};
-
 struct stratum_runtime_stats {
     uint64_t work_updates_total;
     uint64_t work_updates_clean;
@@ -67,7 +62,7 @@ bool verus_stratum_notify(struct stratum_ctx *sctx, json_t *params);
 bool verus_stratum_set_target(struct stratum_ctx *sctx, json_t *params);
 bool verus_stratum_submit(struct pool_infos *pool, struct work *work);
 const struct stratum_protocol_ops *stratum_get_protocol_ops(const struct stratum_ctx *sctx);
-bool stratum_handle_json_message(struct stratum_ctx *sctx, json_t *val, const char *line);
+bool stratum_handle_json_message(struct stratum_ctx *sctx, json_t *val);
 bool stratum_parse_rpc_id(json_t *id_val, uint32_t *id_out);
 char *stratum_build_request_line(const char *method, uint32_t id, json_t *params);
 char *stratum_build_submit_request_line(uint32_t submit_id, const char *user, const char *job_id,
@@ -115,8 +110,7 @@ bool stratum_send_submit(struct stratum_ctx *sctx, const char *line, uint32_t su
 void stratum_publish_work(const struct work *new_work, bool should_restart);
 bool stratum_prepare_work_update_locked(const struct work *new_work, bool clean);
 bool stratum_commit_job_update(struct stratum_ctx *sctx, stratum_job_apply_fn apply_job_locked,
-    stratum_work_build_fn build_work_locked, void *opaque, bool clean,
-    enum stratum_restart_policy restart_policy);
+    stratum_work_build_fn build_work_locked, void *opaque, bool clean);
 void stratum_update_share_stats(int pooln, bool accepted, uint32_t *accepted_out, uint32_t *rejected_out);
 
 bool stratum_submit_standard(struct pool_infos *pool, struct work *work);

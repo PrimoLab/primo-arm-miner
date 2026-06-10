@@ -74,7 +74,7 @@ static enum stratum_wait_status stratum_wait_for_response(struct stratum_ctx *sc
             return STRATUM_WAIT_OK;
         }
 
-        stratum_handle_json_message(sctx, val, line);
+        stratum_handle_json_message(sctx, val);
         json_decref(val);
         free(line);
     }

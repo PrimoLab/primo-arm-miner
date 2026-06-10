@@ -106,8 +106,7 @@ void stratum_free_job(struct stratum_ctx *sctx)
 }
 
 bool stratum_commit_job_update(struct stratum_ctx *sctx, stratum_job_apply_fn apply_job_locked,
-    stratum_work_build_fn build_work_locked, void *opaque, bool clean,
-    enum stratum_restart_policy restart_policy)
+    stratum_work_build_fn build_work_locked, void *opaque, bool clean)
 {
     struct work new_work;
     bool should_restart;
@@ -123,10 +122,7 @@ bool stratum_commit_job_update(struct stratum_ctx *sctx, stratum_job_apply_fn ap
     }
 
     build_work_locked(sctx, &new_work);
-    if (restart_policy == STRATUM_RESTART_TRACK_CHANGES)
-        should_restart = stratum_prepare_work_update_locked(&new_work, clean);
-    else
-        should_restart = true;
+    should_restart = stratum_prepare_work_update_locked(&new_work, clean);
     pthread_mutex_unlock(&stratum_work_lock);
 
     stratum_publish_work(&new_work, should_restart);

@@ -360,11 +360,6 @@ out:
     return sret;
 }
 
-char *stratum_recv_line(struct stratum_ctx *sctx)
-{
-    return stratum_recv_line_timeout(sctx, miner_get_pool_timeout(sctx->pooln), NULL, true);
-}
-
 #if LIBCURL_VERSION_NUM >= 0x071101
 static curl_socket_t opensocket_grab_cb(void *clientp, curlsocktype purpose, struct curl_sockaddr *addr)
 {

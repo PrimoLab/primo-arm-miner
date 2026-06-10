@@ -392,7 +392,6 @@ bool stratum_authorize(struct stratum_ctx *sctx, const char *user, const char *p
 bool stratum_handle_message(struct stratum_ctx *sctx, const char *s);
 void stratum_disconnect(struct stratum_ctx *sctx);
 bool stratum_send_line(struct stratum_ctx *sctx, const char *s);
-char *stratum_recv_line(struct stratum_ctx *sctx);
 
 bool stratum_submit(struct pool_infos *pool, struct work *work);
 

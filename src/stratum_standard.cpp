@@ -35,8 +35,6 @@ struct standard_job_update {
 
 static void build_standard_work(const struct stratum_ctx *sctx, struct work *new_work);
 
-
-
 /**
  * Extract block height     L H... here len=3, height=0x1333e8
  * "...0000000000ffffffff2703e83313062f503253482f043d61105408"
@@ -236,7 +234,7 @@ static bool apply_standard_notify(struct stratum_ctx *sctx, const struct standar
     new_coinbase = NULL;
 
     if (!stratum_commit_job_update(sctx, apply_standard_job_locked, build_standard_work, &update,
-                                   msg->clean, STRATUM_RESTART_TRACK_CHANGES)) {
+                                   msg->clean)) {
         goto out;
     }
     new_job_id = update.job_id;

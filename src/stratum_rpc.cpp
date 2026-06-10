@@ -19,7 +19,6 @@ struct stratum_method_ctx {
     struct stratum_ctx *sctx;
     json_t *id;
     json_t *params;
-    const char *line;
     const struct stratum_protocol_ops *ops;
 };
 
@@ -556,7 +555,7 @@ static const struct stratum_method_handler *find_stratum_method_handler(const ch
     return NULL;
 }
 
-static enum stratum_message_status stratum_handle_method_value(struct stratum_ctx *sctx, json_t *val, const char *line)
+static enum stratum_message_status stratum_handle_method_value(struct stratum_ctx *sctx, json_t *val)
 {
     json_t *id = json_object_get(val, "id");
     json_t *params = json_object_get(val, "params");
@@ -585,7 +584,6 @@ static enum stratum_message_status stratum_handle_method_value(struct stratum_ct
     ctx.sctx = sctx;
     ctx.id = id;
     ctx.params = params;
-    ctx.line = line;
     ctx.ops = ops;
     return handler->handle(&ctx);
 }
@@ -604,17 +602,17 @@ static enum stratum_message_status stratum_handle_response_value(struct stratum_
         : STRATUM_MESSAGE_FATAL;
 }
 
-static enum stratum_message_status stratum_dispatch_json_message(struct stratum_ctx *sctx, json_t *val, const char *line)
+static enum stratum_message_status stratum_dispatch_json_message(struct stratum_ctx *sctx, json_t *val)
 {
     if (json_string_value(json_object_get(val, "method")))
-        return stratum_handle_method_value(sctx, val, line);
+        return stratum_handle_method_value(sctx, val);
 
     return stratum_handle_response_value(sctx, val);
 }
 
-bool stratum_handle_json_message(struct stratum_ctx *sctx, json_t *val, const char *line)
+bool stratum_handle_json_message(struct stratum_ctx *sctx, json_t *val)
 {
-    return stratum_dispatch_json_message(sctx, val, line) != STRATUM_MESSAGE_FATAL;
+    return stratum_dispatch_json_message(sctx, val) != STRATUM_MESSAGE_FATAL;
 }
 
 bool stratum_handle_message(struct stratum_ctx *sctx, const char *s)
@@ -628,7 +626,7 @@ bool stratum_handle_message(struct stratum_ctx *sctx, const char *s)
         return false;
     }
 
-    status = stratum_dispatch_json_message(sctx, val, s);
+    status = stratum_dispatch_json_message(sctx, val);
     json_decref(val);
     return status != STRATUM_MESSAGE_FATAL;
 }
