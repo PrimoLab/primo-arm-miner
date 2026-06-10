@@ -1,0 +1,409 @@
+/*
+ * Shared public types and runtime interfaces for Primo ARM Miner.
+ * Copyright (C) 2026 primo-arm-miner contributors.
+ *
+ * This header stays C-compatible because the mining back ends span
+ * C and C++ translation units.
+ * Substantially rewritten on 2026-03-16 from earlier GPL-licensed mining
+ * software ancestry. See LICENSE and PROVENANCE.md.
+ */
+
+#ifndef MINER_H
+#define MINER_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <time.h>
+
+#include <curl/curl.h>
+#include <jansson.h>
+#include <pthread.h>
+
+// Version
+#define PACKAGE_NAME "primo-arm-miner"
+#define PACKAGE_VERSION "1.0.5"
+#define USER_AGENT PACKAGE_NAME "/" PACKAGE_VERSION
+
+// Limits
+// MAX_POOLS reserves one slot above the user-configurable count for the
+// hidden dev fee pool (see dev_fee.h).
+#define MAX_USER_POOLS 8
+#define MAX_POOLS (MAX_USER_POOLS + 1)
+#define MAX_THREADS 32
+#define MAX_NONCES 2
+#define MAX_PENDING_SUBMITS 256
+#define VERUS_WORK_EXTRA_SIZE 1388
+#define VERUS_WORK_SOLUTION_SIZE 1344
+
+#if MAX_THREADS > UINT8_MAX
+#error "MAX_THREADS must fit in work.thread_id"
+#endif
+
+// Color codes
+#define CL_N    "\x1B[0m"
+#define CL_RED  "\x1B[31m"
+#define CL_GRN  "\x1B[32m"
+#define CL_YLW  "\x1B[33m"
+#define CL_BLU  "\x1B[34m"
+#define CL_CYN  "\x1B[36m"
+#define CL_GRY  "\x1B[90m"
+#define CL_WHT  "\x1B[01;37m"
+
+// Logging priorities used by applog().
+enum {
+    LOG_ERR = 0,
+    LOG_WARNING,
+    LOG_NOTICE,
+    LOG_INFO,
+    LOG_DEBUG
+};
+
+struct verus_work_payload {
+    uint8_t extra[VERUS_WORK_EXTRA_SIZE];
+    uint8_t solution[VERUS_WORK_SOLUTION_SIZE];
+};
+
+// Internal work structure shared by the mining and stratum layers.
+struct work {
+    // Hash input and target data presented to the scan loop.
+    uint32_t data[48];
+    uint32_t target[8];
+
+    // Job identity and extranonce state copied from stratum.
+    char job_id[128];
+    size_t xnonce2_len;
+    uint8_t xnonce2[32];
+
+    // Share submission bookkeeping for algorithms that can return >1 nonce.
+    uint8_t pooln;
+    uint8_t valid_nonces;
+    uint8_t submit_nonce_id;
+    uint8_t thread_id;
+
+    uint32_t nonces[MAX_NONCES];
+    double sharediff[MAX_NONCES];
+    double targetdiff;
+
+    uint32_t height;
+    uint32_t restart_generation;
+
+    // Algorithm-specific scratch/state is attached only when required.
+    struct verus_work_payload *verus;
+};
+
+// Stratum job structure
+struct stratum_job {
+    char *job_id;
+    unsigned char prevhash[32];
+    size_t coinbase_size;
+    unsigned char *coinbase;
+    unsigned char *xnonce2;
+    int merkle_count;
+    unsigned char **merkle;
+    unsigned char version[4];
+    unsigned char nbits[4];
+    unsigned char ntime[4];
+    uint32_t height;
+    double diff;
+    unsigned char solution[VERUS_WORK_SOLUTION_SIZE];
+};
+
+// Pending share submit metadata keyed by JSON-RPC id
+struct pending_submit {
+    uint32_t id;
+    double sharediff;
+    int thread_id;
+    time_t queued_at;
+    bool used;
+};
+
+// Per-pool stratum session state.
+struct stratum_ctx {
+    char *url;
+    CURL *curl;
+    char *curl_url;
+    char curl_err_str[CURL_ERROR_SIZE];
+    curl_socket_t sock;
+    size_t sockbuf_size;
+    char *sockbuf;
+
+    double next_diff;
+
+    char *session_id;
+    size_t xnonce1_size;
+    unsigned char *xnonce1;
+    size_t xnonce2_size;
+    struct stratum_job job;
+
+    int pooln;
+    int is_verus_protocol;
+    int srvtime_diff;
+    int authenticated;  // Set to 1 after successful authorization
+    int reconnect_requested;
+
+    // Thread-safe submit/response correlation
+    pthread_mutex_t submit_lock;
+    uint32_t next_submit_id;
+    struct pending_submit pending_submits[MAX_PENDING_SUBMITS];
+    pthread_t thread;
+    int thread_active;
+    bool thread_created;  // true if pthread_create succeeded; guards pthread_join
+};
+
+// Pool configuration, connection state, and share counters.
+struct pool_infos {
+    bool configured;
+    bool disabled;
+    int timeout;
+
+    char name[64];
+    char url[512];
+    char short_url[64];
+    char user[192];
+    char pass[384];
+
+    struct stratum_ctx stratum;
+
+    uint32_t accepted_count;
+    uint32_t rejected_count;
+    time_t last_share_time;
+    double best_share;
+};
+
+// Mining-thread runtime state.
+struct thr_info {
+    int id;
+    pthread_t pth;
+    double hashrate;
+    uint64_t hashes_done_total;
+    uint32_t accepted;
+    uint32_t rejected;
+};
+
+// Read-only runtime snapshot used by the compatibility API server.
+struct miner_thread_api_stats {
+    double hashrate;
+    uint64_t hashes_done_total;
+    uint32_t accepted;
+    uint32_t rejected;
+    int cpu_id;
+    int cpu_max_freq_mhz;
+    bool cpu_is_big;
+};
+
+struct miner_api_snapshot {
+    bool runtime_active;
+    time_t start_time;
+    double global_hashrate;
+    uint64_t total_hashes_done;
+    int cpu_temp;
+    int thread_count;
+    struct miner_thread_api_stats threads[MAX_THREADS];
+};
+
+// Global options
+extern bool opt_debug;
+extern bool opt_quiet;
+extern bool opt_benchmark;
+extern bool opt_protocol;
+extern int opt_n_threads;
+extern int opt_timeout;
+extern int opt_retries;
+extern int opt_retry_pause;
+extern char *opt_api_bind;
+extern int opt_api_port;
+extern int opt_statsavg;
+extern int opt_priority;
+extern bool opt_affinity_set;
+extern unsigned long opt_affinity_mask;
+
+extern struct pool_infos pools[MAX_POOLS];
+extern int num_pools;
+
+extern struct thr_info *thr_info;
+
+bool miner_should_abort(void);
+void miner_request_abort(void);
+void miner_clear_abort_flag(void);
+void miner_work_generation_reset(void);
+int start_mining(void);
+int miner_get_current_pool_index(void);
+void miner_set_current_pool_index(int pool_index);
+bool miner_pool_is_usable(int pool_index);
+int miner_get_pool_timeout(int pool_index);
+bool miner_work_init(struct work *work);
+void miner_work_reset(struct work *work);
+void miner_work_cleanup(struct work *work);
+bool miner_work_copy(struct work *dst, const struct work *src);
+uint8_t *miner_work_solution(struct work *work);
+const uint8_t *miner_work_solution_const(const struct work *work);
+uint8_t *miner_work_extra(struct work *work);
+const uint8_t *miner_work_extra_const(const struct work *work);
+void miner_runtime_begin(void);
+void miner_runtime_end(void);
+void miner_runtime_publish_global_hashrate(double hashrate);
+void miner_record_thread_share_result(int thread_id, bool accepted);
+bool miner_init_algorithm_runtime(bool *algorithm_ready_out);
+void miner_cleanup_algorithm_runtime(bool algorithm_ready);
+void miner_configure_current_thread(struct thr_info *thread_ctx);
+
+static inline double miner_thread_hashrate_load(const struct thr_info *thread)
+{
+    double hashrate;
+    __atomic_load(&thread->hashrate, &hashrate, __ATOMIC_RELAXED);
+    return hashrate;
+}
+
+static inline void miner_thread_hashrate_store(struct thr_info *thread, double hashrate)
+{
+    __atomic_store(&thread->hashrate, &hashrate, __ATOMIC_RELAXED);
+}
+
+static inline uint64_t miner_thread_hashes_done_load(const struct thr_info *thread)
+{
+    return __atomic_load_n(&thread->hashes_done_total, __ATOMIC_RELAXED);
+}
+
+static inline void miner_thread_hashes_done_store(struct thr_info *thread, uint64_t total_hashes)
+{
+    __atomic_store_n(&thread->hashes_done_total, total_hashes, __ATOMIC_RELAXED);
+}
+
+static inline void miner_thread_hashes_done_add(struct thr_info *thread, uint64_t delta)
+{
+    __atomic_add_fetch(&thread->hashes_done_total, delta, __ATOMIC_RELAXED);
+}
+
+static inline uint32_t miner_thread_accepted_load(const struct thr_info *thread)
+{
+    return __atomic_load_n(&thread->accepted, __ATOMIC_RELAXED);
+}
+
+static inline void miner_thread_accepted_inc(struct thr_info *thread)
+{
+    __atomic_add_fetch(&thread->accepted, 1u, __ATOMIC_RELAXED);
+}
+
+static inline uint32_t miner_thread_rejected_load(const struct thr_info *thread)
+{
+    return __atomic_load_n(&thread->rejected, __ATOMIC_RELAXED);
+}
+
+static inline void miner_thread_rejected_inc(struct thr_info *thread)
+{
+    __atomic_add_fetch(&thread->rejected, 1u, __ATOMIC_RELAXED);
+}
+
+/* Used only by the generation accessor inlines below.
+ * Prefer miner_work_generation_load/bump/reset over direct access. */
+extern uint32_t g_miner_work_generation;
+
+static inline uint32_t miner_work_generation_load(void)
+{
+    return __atomic_load_n(&g_miner_work_generation, __ATOMIC_ACQUIRE);
+}
+
+static inline uint32_t miner_work_generation_bump(void)
+{
+    return __atomic_add_fetch(&g_miner_work_generation, 1, __ATOMIC_ACQ_REL);
+}
+
+static inline bool miner_work_restart_requested(uint32_t local_generation)
+{
+    return miner_work_generation_load() != local_generation;
+}
+
+static inline int stratum_thread_active_load(const struct stratum_ctx *sctx)
+{
+    return __atomic_load_n(&sctx->thread_active, __ATOMIC_ACQUIRE);
+}
+
+static inline void stratum_thread_active_store(struct stratum_ctx *sctx, int active)
+{
+    __atomic_store_n(&sctx->thread_active, active, __ATOMIC_RELEASE);
+}
+
+static inline bool stratum_thread_created_load(const struct stratum_ctx *sctx)
+{
+    return __atomic_load_n(&sctx->thread_created, __ATOMIC_ACQUIRE);
+}
+
+static inline void stratum_thread_created_store(struct stratum_ctx *sctx, bool created)
+{
+    __atomic_store_n(&sctx->thread_created, created, __ATOMIC_RELEASE);
+}
+
+static inline int stratum_is_verus_protocol_load(const struct stratum_ctx *sctx)
+{
+    // Relaxed is correct here: is_verus_protocol is set once during handshake,
+    // before any mining thread calls stratum_get_protocol_ops. No happens-before
+    // chain requires acquire ordering, and __ATOMIC_RELAXED compiles to a plain
+    // ldr on AArch64 (same as the original field access), avoiding the LTO
+    // binary-layout shift that __ATOMIC_ACQUIRE caused for the Verus hot loop.
+    return __atomic_load_n(&sctx->is_verus_protocol, __ATOMIC_RELAXED);
+}
+
+static inline void stratum_is_verus_protocol_store(struct stratum_ctx *sctx, bool is_verus_protocol)
+{
+    __atomic_store_n(&sctx->is_verus_protocol, is_verus_protocol ? 1 : 0, __ATOMIC_RELEASE);
+}
+
+// Utility functions
+void applog(int prio, const char *fmt, ...);
+// Share-difficulty helper (miner.cpp) used by the scanhash back ends.
+void bn_store_share_difficulty(uint32_t *hash, uint32_t *target, struct work *work, int nonce);
+void format_hashrate(double hashrate, char *output, size_t output_size);
+bool hex2bin(void *output, const char *hexstr, size_t len);
+char *bin2hex(const unsigned char *in, size_t len);
+void cbin2hex(char *out, const char *in, size_t len);
+void diff_to_target(uint32_t* target, double diff);
+
+// Config functions
+void parse_cmdline(int argc, char *argv[]);
+void pool_init_defaults(void);
+
+// Compatibility API functions
+bool api_start_service(void);
+void api_stop_service(void);
+void miner_get_api_snapshot(struct miner_api_snapshot *snapshot);
+
+// Stratum functions
+bool stratum_connect(struct stratum_ctx *sctx);
+bool stratum_subscribe(struct stratum_ctx *sctx);
+bool stratum_authorize(struct stratum_ctx *sctx, const char *user, const char *pass);
+bool stratum_handle_message(struct stratum_ctx *sctx, const char *s);
+void stratum_disconnect(struct stratum_ctx *sctx);
+bool stratum_send_line(struct stratum_ctx *sctx, const char *s);
+char *stratum_recv_line(struct stratum_ctx *sctx);
+
+bool stratum_submit(struct pool_infos *pool, struct work *work);
+
+// Mining functions
+int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes, unsigned long *hashes_done);
+int scanhash_sha256d(int thr_id, struct work *work, uint32_t max_hashes, unsigned long *hashes_done);
+int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_hashes, unsigned long *hashes_done);
+int scanhash_dispatch(int thr_id, struct work *work, uint32_t max_hashes, unsigned long *hashes_done);
+bool verus_init_runtime(void);
+void *miner_thread(void *userdata);
+
+// Algorithm selection
+typedef enum {
+    ALGO_VERUS = 0,
+    ALGO_SHA256D,    // Bitcoin
+    ALGO_SCRYPT,     // Litecoin
+    ALGO_COUNT
+} algo_t;
+
+extern algo_t opt_algo;
+extern const char *algo_names[ALGO_COUNT];
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // MINER_H

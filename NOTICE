@@ -1,0 +1,17 @@
+Primo ARM Miner
+Copyright (C) 2026 primo-arm-miner contributors
+
+This project is distributed under the GNU General Public License,
+version 3 or any later version. See the LICENSE file for the full text.
+
+The project contains substantial original work by primo-arm-miner
+contributors and also has known development ancestry from earlier
+GPL-licensed mining software used as reference and integration harnesses,
+including ccminer_arm_cc1, ccminer_oink70_source, and cpuminer-opt-26.1.
+
+Current releases should be treated conservatively as GPL-covered
+distributions. See PROVENANCE.md for a summary of known file ancestry and
+release-compliance notes.
+
+Third-party copyright and license notices that remain in specific files,
+such as src/algorithm/scrypt.h, must be preserved in redistribution.

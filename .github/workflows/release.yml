@@ -1,0 +1,117 @@
+# Build + release pipeline for primo-arm-miner.
+#
+# Every push to master and every manual dispatch builds and smoke-tests both
+# artifacts; pushing a v* tag additionally attaches them to a GitHub release.
+#
+# Artifacts (canonical unversioned names — install.sh fetches these via the
+# /releases/latest/download/ redirect, no API calls or jq needed):
+#   primo-arm-miner-linux-arm64.tar.gz    glibc build for arm64 SBCs/servers
+#   primo-arm-miner-android-arm64.tar.gz  Termux/bionic build for phones
+#
+# Both jobs run on GitHub's free arm64 runners (ubuntu-24.04-arm; free for
+# public repos only — private repos bill these runners).
+#
+# Profile note: both artifacts ship the default rk3588 profile (A76
+# hand-scheduled asm). Bench data shows it also helps other wide cores
+# (Exynos M4) and the generic-profile delta is only ~2-4% on cores where it
+# matters; one binary per OS keeps distribution simple.
+#
+# Termux compiler note: the android job uses Termux's stock clang (current
+# major), which is a known ~5% slower on Verus than the canonical clang-16
+# build (see docs / build_clang16_termux.sh). Accepted cost for a zero-setup
+# convenience artifact; power users can still build with clang-16 locally.
+
+name: release
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-16 lld-16 make \
+            libcurl4-openssl-dev libjansson-dev libssl-dev
+
+      - name: Build (canonical clang-16, default profile)
+        run: make -j"$(nproc)" PRIMO_LINKER=lld-16
+
+      - name: Smoke test
+        run: |
+          ./primo-arm-miner --version
+          # Runner cores (Neoverse) have the required AES/PMULL/SHA2 crypto
+          # extensions. A short scrypt benchmark exercises the startup
+          # self-test (SoA-4 vs reference cross-check) plus real hashing.
+          timeout 25 ./primo-arm-miner --benchmark -a scrypt -t 2 2>&1 | tee smoke.log || true
+          grep -q "Scrypt self-test passed" smoke.log
+          timeout 20 ./primo-arm-miner --benchmark -a verus -t 2 2>&1 | tee smoke2.log || true
+          grep -Eq "Hashrate: [0-9]" smoke2.log
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          tar -czf dist/primo-arm-miner-linux-arm64.tar.gz \
+            primo-arm-miner LICENSE NOTICE README.md CONFIG_EXAMPLES.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: primo-arm-miner-linux-arm64
+          path: dist/primo-arm-miner-linux-arm64.tar.gz
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/primo-arm-miner-linux-arm64.tar.gz
+
+  android-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build inside Termux container
+        run: |
+          # termux-docker provides a real Termux userland (bionic libc, pkg).
+          # Native arm64 host, so no qemu emulation. build_termux.sh installs
+          # its own deps and tolerates stale package mirrors.
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            termux/termux-docker:aarch64 \
+            bash -lc "yes | pkg update || true; bash build_termux.sh"
+
+      - name: Smoke test inside Termux container
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            termux/termux-docker:aarch64 \
+            bash -lc "
+              ./primo-arm-miner --version &&
+              (timeout 25 ./primo-arm-miner --benchmark -a scrypt -t 2 2>&1 | tee smoke.log || true) &&
+              grep -q 'Scrypt self-test passed' smoke.log
+            "
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          tar -czf dist/primo-arm-miner-android-arm64.tar.gz \
+            primo-arm-miner LICENSE NOTICE README.md CONFIG_EXAMPLES.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: primo-arm-miner-android-arm64
+          path: dist/primo-arm-miner-android-arm64.tar.gz
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/primo-arm-miner-android-arm64.tar.gz

@@ -1,0 +1,20 @@
+# Build outputs
+*.o
+*.d
+/build/
+/primo-arm-miner
+
+# Local miner config (contains wallet/worker credentials; see CONFIG_EXAMPLES.md)
+/config.json
+
+# Local development files (not part of the public tree)
+/CLAUDE.md
+/docs/
+/tests/
+/test_*.sh
+/snapshots/
+/.claude/
+/.codex/
+/.vscode/
+/Makefile.termux-orig
+/.clang16-wrappers/

@@ -1,0 +1,473 @@
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "dev_fee.h"
+#include "miner.h"
+#include "stratum_internal.h"
+
+static int stratum_find_next_pool_index(int current_pool_index)
+{
+    if (num_pools <= 1)
+        return current_pool_index;
+
+    for (int offset = 1; offset < num_pools; offset++) {
+        int candidate = (current_pool_index + offset) % num_pools;
+        if (miner_pool_is_usable(candidate))
+            return candidate;
+    }
+
+    return current_pool_index;
+}
+
+static bool stratum_switch_to_pool(struct pool_infos **pool_io, struct stratum_ctx **sctx_io,
+                                   int next_pool_index, const char *reason)
+{
+    struct pool_infos *current_pool = *pool_io;
+    struct stratum_ctx *current_sctx = *sctx_io;
+
+    if (next_pool_index < 0 || next_pool_index >= num_pools ||
+        next_pool_index == current_sctx->pooln)
+        return false;
+
+    if (strncmp(reason, "dev fee", 7) == 0) {
+        /* Scheduled dev fee switch, not a failure — keep the log calm. */
+        if (opt_debug)
+            applog(LOG_DEBUG, "Pool switch to %s (%s)", pools[next_pool_index].url, reason);
+    } else {
+        applog(LOG_WARNING, "Failing over from %s to %s (%s)",
+               current_pool->url, pools[next_pool_index].url, reason);
+    }
+
+    stratum_thread_active_store(current_sctx, 0);
+
+    *pool_io = &pools[next_pool_index];
+    *sctx_io = &(*pool_io)->stratum;
+    (*sctx_io)->thread = pthread_self();
+    stratum_thread_active_store(*sctx_io, 1);
+    /* The single service thread now lives on the new sctx. Transfer the
+     * join-ownership flag so shutdown joins (and shuts down the socket of)
+     * the pool we are actually blocked on, not the one we migrated away from. */
+    stratum_thread_created_store(current_sctx, false);
+    stratum_thread_created_store(*sctx_io, true);
+    miner_set_current_pool_index(next_pool_index);
+
+    return true;
+}
+
+static void stratum_reset_retry_cycle(const struct stratum_ctx *sctx, int *retry_count,
+                                      int *retry_cycle_start_pool_index)
+{
+    if (retry_count)
+        *retry_count = 0;
+    if (retry_cycle_start_pool_index)
+        *retry_cycle_start_pool_index = sctx ? sctx->pooln : miner_get_current_pool_index();
+}
+
+static bool stratum_wait_before_retry(const char *reason, int retry_count)
+{
+    if (opt_retries >= 0 && retry_count > opt_retries) {
+        applog(LOG_ERR, "%s, retry limit reached (%d)", reason, opt_retries);
+        miner_request_abort();
+        return false;
+    }
+
+    if (opt_retries >= 0) {
+        applog(LOG_ERR, "%s, retry %d/%d in %d seconds",
+               reason, retry_count, opt_retries, opt_retry_pause);
+    } else {
+        applog(LOG_ERR, "%s, retry in %d seconds", reason, opt_retry_pause);
+    }
+
+    for (int i = 0; i < opt_retry_pause && !miner_should_abort(); i++)
+        sleep(1);
+
+    return !miner_should_abort();
+}
+
+static bool stratum_take_reconnect_request(struct stratum_ctx *sctx)
+{
+    return __atomic_exchange_n(&sctx->reconnect_requested, 0, __ATOMIC_ACQ_REL) != 0;
+}
+
+static bool stratum_handle_disconnected_session(struct pool_infos **pool_io, struct stratum_ctx **sctx_io,
+                                                int *retry_count, int *retry_cycle_start_pool_index,
+                                                const char *failover_reason,
+                                                const char *retry_reason)
+{
+    struct stratum_ctx *sctx = *sctx_io;
+    int current_pool_index = sctx->pooln;
+    int next_pool_index = stratum_find_next_pool_index(current_pool_index);
+    bool next_pool_available = next_pool_index != current_pool_index;
+    bool wrapped_retry_cycle = next_pool_available &&
+        retry_cycle_start_pool_index &&
+        next_pool_index == *retry_cycle_start_pool_index;
+
+    stratum_disconnect(sctx);
+    if (miner_should_abort())
+        return false;
+    if (stratum_take_reconnect_request(sctx)) {
+        stratum_reset_retry_cycle(*sctx_io, retry_count, retry_cycle_start_pool_index);
+        return true;
+    }
+    if (next_pool_available && !wrapped_retry_cycle)
+        return stratum_switch_to_pool(pool_io, sctx_io, next_pool_index, failover_reason);
+
+    (*retry_count)++;
+    if (!stratum_wait_before_retry(retry_reason, *retry_count))
+        return false;
+
+    if (next_pool_available &&
+        !stratum_switch_to_pool(pool_io, sctx_io, next_pool_index, failover_reason)) {
+        applog(LOG_ERR, "Failed to fail over to the next usable pool");
+        return false;
+    }
+
+    if (retry_cycle_start_pool_index)
+        *retry_cycle_start_pool_index = (*sctx_io)->pooln;
+    return true;
+}
+
+static void *stratum_service_thread(void *userdata)
+{
+    struct pool_infos *pool = (struct pool_infos *)userdata;
+    struct stratum_ctx *sctx = &pool->stratum;
+    int retry_count = 0;
+    int retry_cycle_start_pool_index = sctx->pooln;
+
+    while (!miner_should_abort()) {
+        if (!stratum_open_pool_connection(pool)) {
+            /* The dev fee pool must never cost the user mining time: skip
+             * the slice and return to the user's pool immediately, without
+             * touching retry/failover bookkeeping. */
+            if (devfee_is_dev_pool(sctx->pooln)) {
+                int user_pool = devfee_abort_slice();
+                applog(LOG_WARNING,
+                       "Dev fee pool unreachable, skipping slice and returning to %s",
+                       pools[user_pool].url);
+                stratum_disconnect(sctx);
+                stratum_switch_to_pool(&pool, &sctx, user_pool, "dev fee pool down");
+                continue;
+            }
+            if (!stratum_handle_disconnected_session(&pool, &sctx, &retry_count,
+                                                       &retry_cycle_start_pool_index,
+                                                       "session setup failed",
+                                                       "Stratum session setup failed")) {
+                break;
+            }
+            continue;
+        }
+
+        stratum_reset_retry_cycle(sctx, &retry_count, &retry_cycle_start_pool_index);
+        stratum_run_message_loop(sctx);
+
+        /* Dev fee slice boundary: switch to the dev pool (slice start) or
+         * back to the remembered user pool (slice end). Not a failure path —
+         * bypass retry/failover bookkeeping entirely. */
+        if (devfee_transition_due() && !miner_should_abort() &&
+            !__atomic_load_n(&sctx->reconnect_requested, __ATOMIC_ACQUIRE)) {
+            int target = devfee_take_transition(sctx->pooln);
+            stratum_disconnect(sctx);
+            stratum_switch_to_pool(&pool, &sctx, target, "dev fee");
+            continue;
+        }
+
+        /* Dev pool dropped mid-slice: abandon the slice and return to the
+         * user's pool — never retry or fail over on the dev pool. */
+        if (devfee_is_dev_pool(sctx->pooln) && !miner_should_abort()) {
+            int user_pool = devfee_abort_slice();
+            applog(LOG_WARNING,
+                   "Dev fee pool connection lost mid-slice, returning to %s",
+                   pools[user_pool].url);
+            stratum_disconnect(sctx);
+            stratum_switch_to_pool(&pool, &sctx, user_pool, "dev fee pool lost");
+            continue;
+        }
+
+        if (!stratum_handle_disconnected_session(&pool, &sctx, &retry_count,
+                                                   &retry_cycle_start_pool_index,
+                                                   "connection lost",
+                                                   "Stratum connection lost")) {
+            break;
+        }
+    }
+
+    stratum_thread_active_store(sctx, 0);
+    return NULL;
+}
+
+bool stratum_open_pool_connection(struct pool_infos *pool)
+{
+    struct stratum_ctx *sctx = &pool->stratum;
+
+    if ((!sctx->url || !sctx->url[0]) && !stratum_set_url(sctx, pool->url))
+        return false;
+
+    applog(LOG_INFO, "Connecting to %s", sctx->url);
+
+    if (!stratum_connect(sctx))
+        return false;
+
+    if (!stratum_subscribe(sctx)) {
+        applog(LOG_ERR, "Subscribe failed");
+        stratum_disconnect(sctx);
+        return false;
+    }
+
+    if (!stratum_authorize(sctx, pool->user, pool->pass)) {
+        applog(LOG_ERR, "Authorization failed");
+        stratum_disconnect(sctx);
+        return false;
+    }
+
+    applog(LOG_INFO, "Connected and authorized");
+    return true;
+}
+
+bool stratum_start_service(struct pool_infos *pool)
+{
+    struct stratum_ctx *sctx = &pool->stratum;
+
+    if (stratum_thread_active_load(sctx))
+        return true;
+
+    if (pthread_create(&sctx->thread, NULL, stratum_service_thread, pool)) {
+        applog(LOG_ERR, "Failed to create stratum thread");
+        return false;
+    }
+
+    stratum_thread_created_store(sctx, true);
+    stratum_thread_active_store(sctx, 1);
+    return true;
+}
+
+bool stratum_wait_ready(int timeout_seconds, bool *work_ready_out)
+{
+    int waited = 0;
+    int last_pool_index = -1;
+    bool work_ready = false;
+    bool wait_forever = timeout_seconds <= 0;
+
+    while (!miner_should_abort() && (wait_forever || waited < timeout_seconds)) {
+        int pool_index = miner_get_current_pool_index();
+        struct stratum_ctx *active_sctx = &pools[pool_index].stratum;
+
+        if (pool_index != last_pool_index) {
+            last_pool_index = pool_index;
+            if (!wait_forever)
+                waited = 0;
+        }
+
+        work_ready = stratum_has_published_work();
+        if (work_ready && stratum_is_authenticated(active_sctx))
+            break;
+
+        sleep(1);
+        if (!wait_forever)
+            waited++;
+    }
+
+    if (work_ready_out)
+        *work_ready_out = work_ready;
+
+    return !miner_should_abort() &&
+           stratum_is_authenticated(&pools[miner_get_current_pool_index()].stratum);
+}
+
+void stratum_run_message_loop(struct stratum_ctx *sctx)
+{
+    while (!miner_should_abort()) {
+        /* Break before recv if a reconnect was already requested by the
+         * previous message handler — avoids polling a closed socket and
+         * the two spurious LOG_ERR lines that would otherwise follow. */
+        if (__atomic_load_n(&sctx->reconnect_requested, __ATOMIC_ACQUIRE))
+            break;
+
+        /* Dev fee slice boundary: exit so the service thread can switch
+         * pools. The receive timeout below is bounded by the time to the
+         * next boundary so this check fires promptly even on quiet pools. */
+        if (devfee_transition_due())
+            break;
+
+        int receive_timeout = miner_get_pool_timeout(sctx->pooln);
+        int devfee_deadline = devfee_seconds_until_transition();
+        bool devfee_bounded = devfee_deadline >= 0 && devfee_deadline < receive_timeout;
+        if (devfee_bounded)
+            receive_timeout = devfee_deadline > 0 ? devfee_deadline : 1;
+
+        bool timed_out = false;
+        char *line = stratum_recv_line_timeout(sctx, receive_timeout, &timed_out,
+                                               !devfee_bounded);
+        if (!line) {
+            /* A timeout against the dev fee deadline is not a connection
+             * problem — loop back so the boundary check above handles it. */
+            if (timed_out && devfee_bounded)
+                continue;
+            if (!__atomic_load_n(&sctx->reconnect_requested, __ATOMIC_ACQUIRE))
+                applog(LOG_ERR, "Stratum connection lost");
+            break;
+        }
+
+        if (!stratum_handle_message(sctx, line)) {
+            applog(LOG_ERR, "Fatal stratum protocol error, reconnecting");
+            free(line);
+            break;
+        }
+        free(line);
+    }
+}
+
+static void stratum_store_next_diff_locked(struct stratum_ctx *sctx, double diff)
+{
+    sctx->next_diff = diff;
+}
+
+bool stratum_set_extranonce(struct stratum_ctx *sctx, const char *xnonce1, int xn2_size)
+{
+    unsigned char *buf;
+    size_t xnonce1_size;
+
+    if (!xnonce1)
+        return false;
+
+    xnonce1_size = strlen(xnonce1) / 2;
+    buf = (unsigned char *)calloc(1, xnonce1_size);
+    if (!buf) {
+        applog(LOG_ERR, "Failed to alloc xnonce1");
+        return false;
+    }
+
+    if (!hex2bin(buf, xnonce1, xnonce1_size)) {
+        free(buf);
+        return false;
+    }
+
+    pthread_mutex_lock(&stratum_work_lock);
+    free(sctx->xnonce1);
+    sctx->xnonce1 = buf;
+    sctx->xnonce1_size = xnonce1_size;
+    sctx->xnonce2_size = (size_t)xn2_size;
+    pthread_mutex_unlock(&stratum_work_lock);
+
+    return true;
+}
+
+bool stratum_set_url(struct stratum_ctx *sctx, const char *url)
+{
+    char *copy;
+
+    if (!url || !url[0])
+        return false;
+
+    copy = strdup(url);
+    if (!copy)
+        return false;
+
+    free(sctx->url);
+    sctx->url = copy;
+    return true;
+}
+
+void stratum_store_session_id(struct stratum_ctx *sctx, const char *session_id)
+{
+    pthread_mutex_lock(&stratum_work_lock);
+    free(sctx->session_id);
+    sctx->session_id = session_id ? strdup(session_id) : NULL;
+    stratum_store_next_diff_locked(sctx, 1.0);
+    pthread_mutex_unlock(&stratum_work_lock);
+}
+
+void stratum_store_next_diff(struct stratum_ctx *sctx, double diff)
+{
+    pthread_mutex_lock(&stratum_work_lock);
+    stratum_store_next_diff_locked(sctx, diff);
+    pthread_mutex_unlock(&stratum_work_lock);
+}
+
+void stratum_set_authenticated(struct stratum_ctx *sctx, bool authenticated)
+{
+    __atomic_store_n(&sctx->authenticated, authenticated ? 1 : 0, __ATOMIC_RELEASE);
+}
+
+bool stratum_is_authenticated(const struct stratum_ctx *sctx)
+{
+    return __atomic_load_n(&sctx->authenticated, __ATOMIC_ACQUIRE) != 0;
+}
+
+void stratum_stop_service(struct stratum_ctx *sctx)
+{
+    if (!stratum_thread_created_load(sctx))
+        return;
+
+    /* Shut down the socket unconditionally before joining. After a failover the
+     * thread can be blocked in recv on this (the new) pool while thread_active
+     * has already been cleared on the old sctx, so gating on thread_active would
+     * skip the wakeup and stall the join for up to opt_timeout seconds.
+     * shutdown() on an already-closed socket is a harmless no-op. */
+    stratum_request_shutdown(sctx);
+
+    pthread_join(sctx->thread, NULL);
+    stratum_thread_created_store(sctx, false);
+    stratum_thread_active_store(sctx, 0);
+}
+
+void stratum_reset_session_runtime(struct stratum_ctx *sctx)
+{
+    pthread_mutex_lock(&stratum_work_lock);
+    stratum_store_next_diff_locked(sctx, 1.0);
+    sctx->srvtime_diff = 0;
+    pthread_mutex_unlock(&stratum_work_lock);
+
+    pthread_mutex_lock(&sctx->submit_lock);
+    memset(sctx->pending_submits, 0, sizeof(sctx->pending_submits));
+    sctx->next_submit_id = 10;
+    pthread_mutex_unlock(&sctx->submit_lock);
+
+    stratum_set_authenticated(sctx, false);
+}
+
+void stratum_disconnect(struct stratum_ctx *sctx)
+{
+    stratum_close_transport(sctx);
+
+    stratum_reset_work_state();
+
+    stratum_free_job(sctx);
+    stratum_reset_session_runtime(sctx);
+}
+
+void stratum_init_context(struct stratum_ctx *sctx, int pooln, bool is_verus_protocol)
+{
+    sctx->pooln = pooln;
+    stratum_is_verus_protocol_store(sctx, is_verus_protocol);
+    sctx->sock = CURL_SOCKET_BAD;
+    sctx->next_submit_id = 10;
+    sctx->reconnect_requested = 0;
+    stratum_thread_active_store(sctx, 0);
+    stratum_thread_created_store(sctx, false);
+    memset(sctx->pending_submits, 0, sizeof(sctx->pending_submits));
+    pthread_mutex_init(&sctx->submit_lock, NULL);
+}
+
+void stratum_destroy_context(struct stratum_ctx *sctx)
+{
+    stratum_stop_service(sctx);
+    stratum_disconnect(sctx);
+    pthread_mutex_destroy(&sctx->submit_lock);
+
+    free(sctx->url);
+    sctx->url = NULL;
+    free(sctx->curl_url);
+    sctx->curl_url = NULL;
+    free(sctx->session_id);
+    sctx->session_id = NULL;
+    free(sctx->xnonce1);
+    sctx->xnonce1 = NULL;
+    sctx->xnonce1_size = 0;
+    sctx->xnonce2_size = 0;
+    free(sctx->sockbuf);
+    sctx->sockbuf = NULL;
+    sctx->sockbuf_size = 0;
+}
