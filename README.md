@@ -22,9 +22,10 @@ of the last decade.
 - **Pure ARM-native, no x86 compatibility layer** — Verus, SHA256d, and scrypt paths written directly in ARM intrinsics and AArch64 assembly, not translated from SSE
 - **Hardware crypto extensions** — ARMv8 PMULL, AES, and SHA2 instructions on the hot paths
 - **Per-core runtime optimization** — big.LITTLE topology detected at startup; interleaved CLHash and SoA scrypt kernels enabled per thread where they win
+- **Hotplug-resilient core pinning** — pins are chosen from the platform-allowed cpuset and reconciled continuously; threads adopt cores that Android parks/wakes at runtime instead of losing their pins
 - **ccminer-compatible control surface** — same CLI flags, JSON config format, and monitoring API
 - **Full stratum support** — standard (SHA256d/scrypt) and Verus/equihash variants, multi-pool failover
-- **Tiny footprint** — a single ~170 KB binary, three runtime libraries
+- **Tiny footprint** — a single ~186 KB binary, three runtime libraries
 
 ## Performance
 
