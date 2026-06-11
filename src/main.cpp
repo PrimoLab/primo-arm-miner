@@ -157,7 +157,13 @@ static int run_benchmark(void)
 
         format_hashrate(interval_hashrate, rate_str, sizeof(rate_str));
 
-        applog(LOG_INFO, "Hashrate: %s (%.0f seconds)", rate_str, elapsed);
+        /* Match the live-mining status line: thermals matter most under
+         * benchmark load, especially on passively cooled phones. */
+        int temp = get_cpu_temp();
+        if (temp >= 0)
+            applog(LOG_INFO, "Hashrate: %s (%.0f seconds) | Temp: %dc", rate_str, elapsed, temp);
+        else
+            applog(LOG_INFO, "Hashrate: %s (%.0f seconds)", rate_str, elapsed);
     }
 
     for (int i = 0; i < opt_n_threads; i++) {
