@@ -236,6 +236,109 @@ static int select_allowed_cpu_for_thread(int thread_id, const cpu_set_t *allowed
     return -1;
 }
 
+/* Affinity reconciliation. Android hotplugs/parks cores under light load
+ * (Qualcomm core_ctl, MediaTek hotplug): a parked core is absent from the
+ * allowed set at startup, so its thread starts on a fallback core — and the
+ * mining load itself is what wakes the parked core moments later. Each
+ * thread remembers its ideal (topology-order) core and periodically retries
+ * the pin; when the core comes online the thread upgrades onto it. Also
+ * heals pins broken by the kernel when a core goes offline mid-run (the
+ * kernel resets such a thread's mask to "all online"). One sched_getcpu +
+ * at most one sched_setaffinity per interval — noise-level cost. */
+static const int k_repin_interval_sec = 20;
+static int g_thread_ideal_cpu[MAX_THREADS];
+static time_t g_thread_next_repin[MAX_THREADS];
+
+/* Topology re-detection on hotplug. Cores parked at startup are invisible to
+ * detect_cpu_topology() (offline cores expose no MIDR or cpufreq nodes, so
+ * they could not be classified anyway). When the kernel's online mask
+ * changes — Android waking parked cores under our own mining load, or
+ * parking them again — re-scan and let every thread recompute its ideal
+ * core. The lock serializes the refresh against ideal recomputation; the
+ * generation counter tells threads their cached ideal is stale. */
+static pthread_mutex_t g_topology_lock = PTHREAD_MUTEX_INITIALIZER;
+static int g_topology_generation = 1;
+static int g_thread_topology_gen[MAX_THREADS];
+
+static int select_affinity_cpu_for_thread(int thread_id, const cpu_set_t *allowed);
+
+/* Ideal (topology-order) core for a thread, ignoring the current allowed
+ * set: a core parked by hotplug right now is still the right long-term home.
+ * Single source of truth for startup pinning and the reconciliation tick. */
+static int compute_ideal_cpu_for_thread(int thread_id)
+{
+    if (opt_affinity_set && g_num_cpus > 0) {
+        cpu_set_t full_set;
+        CPU_ZERO(&full_set);
+        for (int i = 0; i < g_num_cpus; i++) {
+            int cpu_id = g_cpu_cores[i].cpu_id;
+            if (cpu_id >= 0 && cpu_id < CPU_SETSIZE)
+                CPU_SET(cpu_id, &full_set);
+        }
+        return select_affinity_cpu_for_thread(thread_id, &full_set);
+    }
+    if (g_core_order_count > 0)
+        return get_cpu_for_thread(thread_id);
+    return -1;
+}
+
+void miner_thread_repin_tick(int thread_id)
+{
+    if (thread_id < 0 || thread_id >= MAX_THREADS)
+        return;
+
+    time_t now = time(NULL);
+    if (now < g_thread_next_repin[thread_id])
+        return;
+    g_thread_next_repin[thread_id] = now + k_repin_interval_sec;
+
+    pthread_mutex_lock(&g_topology_lock);
+    if (cpu_topology_online_changed()) {
+        cpu_topology_refresh();
+        g_topology_generation++;
+        applog(LOG_INFO,
+               "CPU online set changed (hotplug) — re-detected topology: %d cores (%d big)",
+               g_num_cpus, g_num_big_cores);
+    }
+    if (g_thread_topology_gen[thread_id] != g_topology_generation) {
+        g_thread_topology_gen[thread_id] = g_topology_generation;
+        g_thread_ideal_cpu[thread_id] = compute_ideal_cpu_for_thread(thread_id);
+    }
+    int ideal_cpu = g_thread_ideal_cpu[thread_id];
+    pthread_mutex_unlock(&g_topology_lock);
+
+    if (ideal_cpu < 0 || ideal_cpu >= CPU_SETSIZE)
+        return;
+
+    /* Compare the effective MASK, not just the current CPU: cpuset hotplug
+     * propagation resets every task's affinity to the full online set when
+     * any core comes online (verified on 6.1: pins to cores 4/5/6/0 all
+     * became 0-7 the moment cpu7 onlined). A thread can then sit on its
+     * ideal core by scheduler luck while being free to wander — re-assert
+     * the single-core pin whenever the mask is anything but {ideal}. */
+    cpu_set_t current;
+    if (sched_getaffinity(0, sizeof(current), &current) == 0 &&
+        CPU_COUNT(&current) == 1 && CPU_ISSET(ideal_cpu, &current))
+        return; /* pin intact */
+
+    int prev_cpu = sched_getcpu();
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(ideal_cpu, &cpuset);
+    if (sched_setaffinity(0, sizeof(cpuset), &cpuset) != 0)
+        return; /* still offline/forbidden — retry next interval */
+
+    /* Report actual migrations; silent when merely re-asserting the mask on
+     * a thread already sitting on its ideal core (the common case after a
+     * hotplug wipe), so flapping cores don't spam the log. */
+    if (prev_cpu != ideal_cpu) {
+        cpu_core_info_t *core = find_cpu_core_info(ideal_cpu);
+        applog(LOG_INFO, "Thread %d: re-pinned to CPU %d%s after it became available",
+               thread_id, ideal_cpu,
+               core ? (core->is_big ? " (big)" : " (LITTLE)") : "");
+    }
+}
+
 static int select_affinity_cpu_for_thread(int thread_id, const cpu_set_t *allowed)
 {
     int mask_bits = (int)(sizeof(unsigned long) * 8);
@@ -420,6 +523,16 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
     int intended_cpu = -1;
     cpu_set_t allowed;
     miner_query_allowed_cpus(&allowed);
+
+    /* Seed the reconciliation tick: remember this thread's ideal core and
+     * which topology generation it was computed against. */
+    if (thread_id >= 0 && thread_id < MAX_THREADS) {
+        pthread_mutex_lock(&g_topology_lock);
+        g_thread_ideal_cpu[thread_id] = compute_ideal_cpu_for_thread(thread_id);
+        g_thread_topology_gen[thread_id] = g_topology_generation;
+        pthread_mutex_unlock(&g_topology_lock);
+        g_thread_next_repin[thread_id] = time(NULL) + k_repin_interval_sec;
+    }
 
     if (opt_affinity_set && g_num_cpus > 0) {
         cpu_set_t cpuset;
@@ -994,6 +1107,10 @@ void *miner_thread(void *userdata)
         rate_window_scan_sec += (scan_t1.tv_sec - scan_t0.tv_sec) +
                                 (scan_t1.tv_nsec - scan_t0.tv_nsec) / 1e9;
         miner_thread_hashes_done_add(thread_ctx, hashes_done);
+
+        /* Hotplug/cpuset reconciliation: upgrade onto the ideal core once
+         * Android brings it online (rate-limited internally). */
+        miner_thread_repin_tick(thread_id);
 
         // Advance through the absolute thread partition using the backend's reported progress.
         next_nonce_index += (uint64_t)hashes_done;

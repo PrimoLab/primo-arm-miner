@@ -230,6 +230,8 @@ static void *benchmark_thread(void *userdata)
             nonce_start = nonce_seed;
         total_hashes += hashes_done;
 
+        miner_thread_repin_tick(thr_id);
+
         gettimeofday(&tv_now, NULL);
         double elapsed = (tv_now.tv_sec - tv_start.tv_sec) +
                         (tv_now.tv_usec - tv_start.tv_usec) / 1000000.0;

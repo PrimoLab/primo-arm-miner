@@ -167,18 +167,41 @@ static bool read_cpuinfo_midr(int cpu, int *implementer_out, int *part_out) {
     return false;
 }
 
-void detect_cpu_topology(void) {
+/* Kernel's online-CPU mask as a string (e.g. "0-3,6-7"), captured at every
+ * (re)detection. Android hotplugs/parks cores, so the online set at miner
+ * startup is just a snapshot — comparing against the current mask tells the
+ * caller when a re-detect is worthwhile. */
+static char g_online_mask_snapshot[128];
+
+static void read_online_cpu_mask(char *buf, size_t buf_len) {
+    buf[0] = '\0';
 #ifdef __linux__
-    /* Idempotent: CPU topology is static for the process lifetime. The
-     * benchmark and mining entry points each call this once at startup (in
-     * mutually exclusive paths today), but guard against re-running so a
-     * second or future caller is a safe no-op instead of re-scanning sysfs
-     * and rebuilding the global order arrays. Main-thread-only at startup,
-     * so a plain static flag is sufficient. */
-    static bool g_topology_detected = false;
-    if (g_topology_detected)
+    FILE *f = fopen("/sys/devices/system/cpu/online", "r");
+    if (!f)
         return;
-    g_topology_detected = true;
+    if (fgets(buf, (int)buf_len, f)) {
+        size_t len = strlen(buf);
+        while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
+            buf[--len] = '\0';
+    } else {
+        buf[0] = '\0';
+    }
+    fclose(f);
+#else
+    (void)buf_len;
+#endif
+}
+
+bool cpu_topology_online_changed(void) {
+    char current[sizeof(g_online_mask_snapshot)];
+    read_online_cpu_mask(current, sizeof(current));
+    /* Unreadable mask (both empty) compares equal — never forces refreshes. */
+    return strcmp(current, g_online_mask_snapshot) != 0;
+}
+
+static void detect_cpu_topology_now(void) {
+#ifdef __linux__
+    read_online_cpu_mask(g_online_mask_snapshot, sizeof(g_online_mask_snapshot));
 
     g_num_cpus = 0;
     g_num_big_cores = 0;
@@ -334,6 +357,22 @@ void detect_cpu_topology(void) {
         g_core_order[g_core_order_count++] = g_cpu_cores[best].cpu_id;
     }
 #endif
+}
+
+void detect_cpu_topology(void) {
+    /* Idempotent one-shot for the startup paths (benchmark and mining entry
+     * points both call it). Main-thread-only at startup, so a plain static
+     * flag is sufficient. Later hotplug changes are handled by explicit
+     * cpu_topology_refresh() calls, which the caller must serialize. */
+    static bool g_topology_detected = false;
+    if (g_topology_detected)
+        return;
+    g_topology_detected = true;
+    detect_cpu_topology_now();
+}
+
+void cpu_topology_refresh(void) {
+    detect_cpu_topology_now();
 }
 
 int get_cpu_for_thread(int thr_id) {

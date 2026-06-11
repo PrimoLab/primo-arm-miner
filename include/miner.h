@@ -252,6 +252,12 @@ bool miner_init_algorithm_runtime(bool *algorithm_ready_out);
 void miner_cleanup_algorithm_runtime(bool algorithm_ready);
 void miner_configure_current_thread(struct thr_info *thread_ctx);
 
+/* Hotplug/cpuset affinity reconciliation: rate-limited internally; call from
+ * the worker loop once per scan chunk. Re-detects topology when the kernel's
+ * online-CPU mask changes and upgrades the thread onto its ideal core once
+ * that core is available. */
+void miner_thread_repin_tick(int thread_id);
+
 static inline double miner_thread_hashrate_load(const struct thr_info *thread)
 {
     double hashrate;

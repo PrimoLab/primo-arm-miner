@@ -53,6 +53,13 @@ extern int g_core_order_count;
 void detect_cpu_topology(void);
 int get_cpu_for_thread(int thr_id);
 
+// Hotplug support: Android parks/wakes cores at runtime, so startup topology
+// is a snapshot. online_changed() compares the kernel's online-CPU mask
+// against the last detection; refresh() re-scans. Callers must serialize
+// refresh() against concurrent topology readers themselves.
+bool cpu_topology_online_changed(void);
+void cpu_topology_refresh(void);
+
 // --- CPU temperature ---
 // Returns highest CPU thermal zone temp in degrees C, or -1 if unavailable
 int get_cpu_temp(void);
