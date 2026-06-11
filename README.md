@@ -13,6 +13,10 @@ installs runtime libraries, and prints a mining quickstart. ARMv8 crypto
 extensions (AES/PMULL/SHA2) are required — standard on every 64-bit ARM SoC
 of the last decade.
 
+> **Termux note:** if launching fails with `CANNOT LINK EXECUTABLE ...
+> libcurl.so`, your Termux packages are out of sync (libcurl newer than its
+> ngtcp2 dependency). Run `pkg update && pkg upgrade -y` and retry.
+
 ## Features
 
 - **Pure ARM-native, no x86 compatibility layer** — Verus, SHA256d, and scrypt paths written directly in ARM intrinsics and AArch64 assembly, not translated from SSE
@@ -282,6 +286,32 @@ primo-arm-miner/
 - Project release ancestry is documented in [`PROVENANCE.md`](PROVENANCE.md)
 - Project redistribution notice is in [`NOTICE`](NOTICE)
 - Built with substantial contributor assistance during the rewrite/compliance passes
+
+## Disclaimer
+
+This software is provided **as-is, without warranty of any kind**, and you
+install and run it **entirely at your own risk**. The authors and
+contributors accept **no responsibility for any damage** resulting from its
+use.
+
+Cryptocurrency mining is one of the most demanding workloads a device can
+run. Be aware that sustained mining will:
+
+- run your CPU at or near 100% load for extended periods, generating
+  **significant heat** — especially on passively cooled phones and SBCs;
+- accelerate **battery wear** on mobile devices (mine plugged in, ideally
+  with the battery between charge limits, and never under a pillow or in
+  direct sun);
+- increase **power consumption** and may shorten the lifespan of hardware
+  that is run hot for long periods.
+
+Monitor your device temperatures, ensure adequate cooling, and stop mining
+if a device gets too hot to touch comfortably. You are also responsible for
+ensuring that mining complies with local regulations, your electricity
+arrangements, and the terms of any pool you connect to. Double-check wallet
+addresses — shares mined to a mistyped address are unrecoverable.
+
+Use responsibly.
 
 ## License
 
