@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "dev_fee.h"
 
@@ -127,8 +128,26 @@ void devfee_runtime_begin(void)
         return;
 
     g_devfee.in_slice = false;
-    /* First slice after one full cycle: short sessions pay nothing. */
-    g_devfee.next_transition = time(NULL) + g_devfee.cycle_seconds;
+
+    /* First slice at a uniformly random point within the first cycle,
+     * re-drawn every start. A deterministic first transition (the old
+     * "exactly one cycle in") lets a scheduled restart just before that
+     * mark skip the fee forever; with a uniform draw the only winning
+     * restart cadence is more often than one slice length, where reconnect
+     * and warmup overhead cost far more than the fee. Long-run duty cycle
+     * is unchanged. Deliberately NOT logged: randomization only deters
+     * gaming while the scheduled time is unobservable — slices announce
+     * themselves when they begin, never in advance. */
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    unsigned seed = (unsigned)ts.tv_nsec ^ (unsigned)ts.tv_sec ^
+                    ((unsigned)getpid() << 16) ^ (unsigned)time(NULL);
+    int first_delay = g_devfee.slice_seconds;
+    int span = g_devfee.cycle_seconds - g_devfee.slice_seconds;
+    if (span > 0)
+        first_delay += (int)(rand_r(&seed) % (unsigned)(span + 1));
+
+    g_devfee.next_transition = time(NULL) + first_delay;
 }
 
 bool devfee_is_dev_pool(int pool_index)

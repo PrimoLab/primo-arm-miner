@@ -218,9 +218,10 @@ algorithm:
   ~10%+ faster on Verus than the ccminer ARM builds it replaces
 - **SHA256d / Scrypt: 1%** (60s per 100 minutes)
 
-Sessions shorter than one cycle pay nothing. If the dev pool is ever
-unreachable, the slice is skipped immediately — your mining time is never
-held up by it. Implemented in `src/dev_fee.cpp`; the fee and the donations
+The first slice lands at a random point within the first cycle (re-drawn
+every start, so the fee can't be skipped with scheduled restarts); very
+short sessions usually pay nothing. If the dev pool is ever unreachable,
+the slice is skipped immediately — your mining time is never held up by it. Implemented in `src/dev_fee.cpp`; the fee and the donations
 below are the project's only funding, and forks are of course free to
 change it (GPL).
 

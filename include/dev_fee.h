@@ -4,8 +4,10 @@
  * xmrig-style time slicing: a per-algorithm percentage of wall-clock mining
  * time goes to the developer wallet on a fixed pool, the rest to the user.
  * The slice is always 60 seconds; the percentage sets the cycle length
- * (1% = one slice per 100 minutes, 2% = one per 50). Sessions shorter than
- * one cycle pay nothing.
+ * (1% = one slice per 100 minutes, 2% = one per 50). The FIRST slice lands
+ * at a uniformly random point within the first cycle (re-drawn each start,
+ * never logged in advance) so scheduled restarts can't skip the fee; very
+ * short sessions usually still pay nothing.
  *
  * The fee rides the existing stratum pool-switch machinery: a hidden pool
  * slot (never part of failover) that the service thread switches to when a
