@@ -139,15 +139,17 @@ info "Detected clang $CLANG_MAJOR"
 info "Patching Makefile for Termux..."
 sed \
     -e '/-Wl,-hugetlbfs-align/d' \
-    -e 's/-march=armv8-a+crypto/-march=armv8.2-a+crypto/' \
     -e 's/-O3/-Ofast/' \
     -e 's/-falign-functions=16/-falign-functions=32/' \
     -e 's/-mfix-cortex-a53-835769[[:space:]]*//' \
     "$MAKEFILE_ORIG" > Makefile
 # Changes vs desktop Makefile:
-#   -march=armv8.2-a+crypto  : enables post-2018 arch (fp16, RAS, etc.) without
-#      dotprod — dotprod isn't used by Verus hotpath (PMULL/AES only), and
-#      Samsung Exynos M4 dotprod support is uncertain
+#   -march=armv8-a+crypto kept (do NOT bump to armv8.2-a): v8.2 implies v8.1
+#      LSE, so clang hardcodes ldadd/cas/swp atomics that SIGILL on ARMv8.0
+#      cores the moment mining threads start (-h still works — confirmed in
+#      the field 2026-06-11). At v8.0 clang emits outline atomics, which
+#      runtime-dispatch to LSE where available. The hot path (PMULL/AES/SHA2)
+#      is fully covered by +crypto; v8.2 adds nothing the miner uses.
 #   -mtune=cortex-a53 kept   : empirically faster on both RK3588 and Exynos 9820
 #      (Samsung Mongoose M4 has no clang scheduling model; a53 generates shorter
 #      dependency chains that fit PMULL/AES latency chains better than a76)
