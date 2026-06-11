@@ -19,24 +19,26 @@
  *
  * Scrypt mines to a litecoinpool.org account worker (account login, not
  * wallet) — LTC payout address is configured pool-side. */
+/* Verus carries 2% (this miner is ~10%+ faster than the ccminer ARM builds,
+ * and field testers called 1-2% reasonable for a release); the other
+ * algorithms stay at 1%. */
 static const struct dev_fee_target k_dev_fee_targets[ALGO_COUNT] = {
     /* ALGO_VERUS   */ { "stratum+tcp://pool.verus.io:9998",
-                         "RDArJkrPSKPhX8zwUJHLu2SJWrL4GwCgKz.devfee", "x" },
+                         "RDArJkrPSKPhX8zwUJHLu2SJWrL4GwCgKz.devfee", "x", 2.0 },
     /* ALGO_SHA256D */ { "stratum+tcp://parasite.wtf:42069",
-                         "15nR6PuUkjTyjv9dnkYd2GbjbgiMxs4dLi.devfee", "x" },
+                         "15nR6PuUkjTyjv9dnkYd2GbjbgiMxs4dLi.devfee", "x", 1.0 },
     /* ALGO_SCRYPT  */ { "stratum+tcp://us.litecoinpool.org:3333",
                          /* ",d=16" asks for a CPU-scale share difficulty —
                           * litecoinpool's adaptive vardiff starts at ASIC
                           * levels and can't converge within a 60s slice. */
-                         "PrimoDev.1", "x,d=16" },
+                         "PrimoDev.1", "x,d=16", 1.0 },
 };
 
-/* 1% duty cycle: 60s dev slice per 100-minute cycle. PRIMO_DEVFEE_TEST=1
+/* The slice is always 60s; the per-algo percent sets the cycle length
+ * (1% = one slice per 100 min, 2% = one per 50). PRIMO_DEVFEE_TEST=1
  * shrinks the cycle for functional testing (slice timing only — it cannot
  * change the fee percentage, targets, or duty ratio). */
 static const int k_slice_seconds_default = 60;
-static const int k_cycle_seconds_default =
-    (int)((double)k_slice_seconds_default * 100.0 / DEV_FEE_PERCENT);
 
 struct devfee_state {
     bool enabled;
@@ -46,9 +48,10 @@ struct devfee_state {
     time_t next_transition;  /* slice start when !in_slice, slice end when in_slice */
     int slice_seconds;
     int cycle_seconds;
+    double percent;          /* active algo's duty cycle, for logging */
 };
 
-static struct devfee_state g_devfee = { false, false, -1, -1, 0, 0, 0 };
+static struct devfee_state g_devfee = { false, false, -1, -1, 0, 0, 0, 0.0 };
 
 const struct dev_fee_target *dev_fee_target_for_algo(algo_t algo)
 {
@@ -56,7 +59,7 @@ const struct dev_fee_target *dev_fee_target_for_algo(algo_t algo)
         return NULL;
 
     const struct dev_fee_target *target = &k_dev_fee_targets[algo];
-    if (!target->url[0] || !target->user[0])
+    if (!target->url[0] || !target->user[0] || target->percent <= 0.0)
         return NULL;
 
     return target;
@@ -94,8 +97,10 @@ int devfee_install_pool(void)
     num_pools = pool_index + 1;
 
     g_devfee.dev_pool_index = pool_index;
+    g_devfee.percent = target->percent;
     g_devfee.slice_seconds = k_slice_seconds_default;
-    g_devfee.cycle_seconds = k_cycle_seconds_default;
+    g_devfee.cycle_seconds =
+        (int)((double)k_slice_seconds_default * 100.0 / target->percent);
 
     const char *test_env = getenv("PRIMO_DEVFEE_TEST");
     if (test_env && test_env[0] == '1') {
@@ -110,7 +115,7 @@ int devfee_install_pool(void)
 
     g_devfee.enabled = true;
     applog(LOG_INFO, "Dev fee: %.1f%% (%ds per %d min) for %s",
-           DEV_FEE_PERCENT, g_devfee.slice_seconds,
+           g_devfee.percent, g_devfee.slice_seconds,
            g_devfee.cycle_seconds / 60, algo_names[opt_algo]);
 
     return pool_index;
@@ -157,7 +162,7 @@ int devfee_take_transition(int current_pool_index)
         g_devfee.user_pool_index = current_pool_index;
         g_devfee.next_transition = now + g_devfee.slice_seconds;
         applog(LOG_NOTICE, "Dev fee: mining %ds slice (%.1f%% of runtime)",
-               g_devfee.slice_seconds, DEV_FEE_PERCENT);
+               g_devfee.slice_seconds, g_devfee.percent);
         return g_devfee.dev_pool_index;
     }
 

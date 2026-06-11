@@ -209,9 +209,15 @@ Startup uses the same retry policy as steady-state reconnects. With `-r -1`, the
 
 ## Dev Fee
 
-The miner includes a 1% development fee: one 60-second slice per 100 minutes
-of mining is sent to the developer's pool/wallet for the active algorithm.
-Sessions shorter than 100 minutes pay nothing. If the dev pool is ever
+The miner includes a small development fee, taken as one 60-second time
+slice per cycle of mining on the developer's pool/wallet for the active
+algorithm:
+
+- **Verus: 2%** (60s per 50 minutes) — reflecting that this miner is
+  ~10%+ faster on Verus than the ccminer ARM builds it replaces
+- **SHA256d / Scrypt: 1%** (60s per 100 minutes)
+
+Sessions shorter than one cycle pay nothing. If the dev pool is ever
 unreachable, the slice is skipped immediately — your mining time is never
 held up by it. Implemented in `src/dev_fee.cpp`; the fee and the donations
 below are the project's only funding, and forks are of course free to
@@ -255,7 +261,7 @@ primo-arm-miner/
 │   ├── stratum_rpc.cpp        # JSON-RPC build/dispatch, difficulty
 │   ├── stratum_state.cpp      # Shared work/runtime state, share stats
 │   ├── stratum_job.cpp        # Job commit / work building
-│   ├── dev_fee.cpp            # 1% time-slice dev fee scheduler
+│   ├── dev_fee.cpp            # Time-slice dev fee scheduler (2% verus, 1% rest)
 │   ├── algorithm/
 │   │   ├── verus.cpp          # VerusHash v2.2 (CLHash + Haraka512)
 │   │   ├── clhash_native.c    # Native CLHash (PMULL)

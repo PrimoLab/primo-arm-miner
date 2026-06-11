@@ -1,10 +1,11 @@
 /*
  * Dev fee scheduling for Primo ARM Miner.
  *
- * xmrig-style time slicing: DEV_FEE_PERCENT of wall-clock mining time goes
- * to the developer wallet on a fixed pool, the rest to the user. With the
- * default 1% that is one 60-second slice per 100 minutes; sessions shorter
- * than one cycle pay nothing.
+ * xmrig-style time slicing: a per-algorithm percentage of wall-clock mining
+ * time goes to the developer wallet on a fixed pool, the rest to the user.
+ * The slice is always 60 seconds; the percentage sets the cycle length
+ * (1% = one slice per 100 minutes, 2% = one per 50). Sessions shorter than
+ * one cycle pay nothing.
  *
  * The fee rides the existing stratum pool-switch machinery: a hidden pool
  * slot (never part of failover) that the service thread switches to when a
@@ -21,13 +22,12 @@
 extern "C" {
 #endif
 
-#define DEV_FEE_PERCENT 1.0
-
 struct dev_fee_target {
     const char *url;   /* stratum URL of the dev pool for this algorithm */
     const char *user;  /* dev wallet or account login (+ optional worker) */
     const char *pass;  /* stratum password — account pools use this for coin
                           selection (e.g. zergpool "c=LTC"); plain pools "x" */
+    double percent;    /* share of wall-clock mining time (duty cycle), >0 */
 };
 
 /* Target for the given algorithm, or NULL when no dev wallet is configured
