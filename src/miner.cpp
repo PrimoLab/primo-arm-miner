@@ -194,7 +194,49 @@ static cpu_core_info_t *find_cpu_core_info(int cpu_id)
     return NULL;
 }
 
-static int select_affinity_cpu_for_thread(int thread_id)
+/* CPUs the platform actually lets this process run on. Android confines apps
+ * with cpuset cgroups, so cores that exist in sysfs can still be off-limits —
+ * pinning to one fails with EINVAL. The inherited affinity mask is the ground
+ * truth for what a pin may legally request, so every pin target below is
+ * chosen from this set. Falls back to "all detected CPUs" if the query fails
+ * (non-Linux or exotic seccomp), which restores the old behavior. */
+static void miner_query_allowed_cpus(cpu_set_t *allowed)
+{
+    if (sched_getaffinity(0, sizeof(*allowed), allowed) == 0)
+        return;
+    CPU_ZERO(allowed);
+    for (int i = 0; i < g_num_cpus; i++) {
+        if (g_cpu_cores[i].cpu_id >= 0 && g_cpu_cores[i].cpu_id < CPU_SETSIZE)
+            CPU_SET(g_cpu_cores[i].cpu_id, allowed);
+    }
+}
+
+/* Topology-order pin target for this thread, restricted to the allowed set.
+ * Returns -1 when no core in the preferred order is allowed. */
+static int select_allowed_cpu_for_thread(int thread_id, const cpu_set_t *allowed)
+{
+    int allowed_count = 0;
+
+    for (int i = 0; i < g_core_order_count; i++) {
+        int cpu_id = g_core_order[i];
+        if (cpu_id >= 0 && cpu_id < CPU_SETSIZE && CPU_ISSET(cpu_id, allowed))
+            allowed_count++;
+    }
+    if (allowed_count == 0)
+        return -1;
+
+    int target_index = thread_id % allowed_count;
+    for (int i = 0; i < g_core_order_count; i++) {
+        int cpu_id = g_core_order[i];
+        if (cpu_id < 0 || cpu_id >= CPU_SETSIZE || !CPU_ISSET(cpu_id, allowed))
+            continue;
+        if (target_index-- == 0)
+            return cpu_id;
+    }
+    return -1;
+}
+
+static int select_affinity_cpu_for_thread(int thread_id, const cpu_set_t *allowed)
 {
     int mask_bits = (int)(sizeof(unsigned long) * 8);
     int selected_count = 0;
@@ -209,7 +251,7 @@ static int select_affinity_cpu_for_thread(int thread_id)
         for (int order_index = 0; order_index < g_core_order_count; order_index++) {
             int cpu_id = g_core_order[order_index];
 
-            if (cpu_id < 0 || cpu_id >= mask_bits)
+            if (cpu_id < 0 || cpu_id >= mask_bits || !CPU_ISSET(cpu_id, allowed))
                 continue;
             if ((opt_affinity_mask >> cpu_id) & 1UL)
                 selected_count++;
@@ -221,7 +263,7 @@ static int select_affinity_cpu_for_thread(int thread_id)
             for (int order_index = 0; order_index < g_core_order_count; order_index++) {
                 int cpu_id = g_core_order[order_index];
 
-                if (cpu_id < 0 || cpu_id >= mask_bits)
+                if (cpu_id < 0 || cpu_id >= mask_bits || !CPU_ISSET(cpu_id, allowed))
                     continue;
                 if (!((opt_affinity_mask >> cpu_id) & 1UL))
                     continue;
@@ -233,7 +275,7 @@ static int select_affinity_cpu_for_thread(int thread_id)
 
     selected_count = 0;
     for (int cpu_id = 0; cpu_id < g_num_cpus && cpu_id < mask_bits; cpu_id++) {
-        if ((opt_affinity_mask >> cpu_id) & 1UL)
+        if (((opt_affinity_mask >> cpu_id) & 1UL) && CPU_ISSET(cpu_id, allowed))
             selected_count++;
     }
 
@@ -241,7 +283,7 @@ static int select_affinity_cpu_for_thread(int thread_id)
         int target_index = thread_id % selected_count;
 
         for (int cpu_id = 0; cpu_id < g_num_cpus && cpu_id < mask_bits; cpu_id++) {
-            if (!((opt_affinity_mask >> cpu_id) & 1UL))
+            if (!((opt_affinity_mask >> cpu_id) & 1UL) || !CPU_ISSET(cpu_id, allowed))
                 continue;
             if (target_index-- == 0)
                 return cpu_id;
@@ -376,10 +418,12 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
     // post-warmup readback below can tell whether the platform actually honored
     // it (Android cpuset cgroups can clamp a "successful" pin to another cluster).
     int intended_cpu = -1;
+    cpu_set_t allowed;
+    miner_query_allowed_cpus(&allowed);
 
     if (opt_affinity_set && g_num_cpus > 0) {
         cpu_set_t cpuset;
-        int selected_cpu = select_affinity_cpu_for_thread(thread_id);
+        int selected_cpu = select_affinity_cpu_for_thread(thread_id, &allowed);
 
         CPU_ZERO(&cpuset);
         if (selected_cpu >= 0)
@@ -398,15 +442,32 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
                        thread_id, selected_cpu, opt_affinity_mask);
             }
         } else {
-            applog(LOG_WARNING, "Thread %d: affinity-mask pin unavailable (mask 0x%lx) — leaving to scheduler",
+            applog(LOG_WARNING, "Thread %d: affinity-mask pin unavailable (mask 0x%lx, platform cpuset may exclude those CPUs) — leaving to scheduler",
                    thread_id, opt_affinity_mask);
         }
     } else if (g_core_order_count > 0) {
         int cpu_id = get_cpu_for_thread(thread_id);
+
+        /* If the platform cpuset forbids the topology-preferred core, remap to
+         * this thread's slot among the cores we are actually allowed to use
+         * (still in big-first topology order) instead of attempting a pin that
+         * is guaranteed to fail with EINVAL. Seen on Android: foreground apps
+         * are often restricted to a subset of cores, and which subset varies
+         * by vendor and screen state. */
+        if (cpu_id >= 0 && cpu_id < CPU_SETSIZE && !CPU_ISSET(cpu_id, &allowed)) {
+            int remapped_cpu = select_allowed_cpu_for_thread(thread_id, &allowed);
+            applog(LOG_WARNING,
+                   "Thread %d: CPU %d is outside the platform-allowed cpuset; %s",
+                   thread_id, cpu_id,
+                   remapped_cpu >= 0 ? "remapping within allowed cores" : "no allowed core found, leaving to scheduler");
+            cpu_id = remapped_cpu;
+        }
+
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
-        CPU_SET(cpu_id, &cpuset);
-        if (sched_setaffinity(0, sizeof(cpuset), &cpuset) == 0) {
+        if (cpu_id >= 0)
+            CPU_SET(cpu_id, &cpuset);
+        if (cpu_id >= 0 && sched_setaffinity(0, sizeof(cpuset), &cpuset) == 0) {
             intended_cpu = cpu_id;
             cpu_core_info_t *core = find_cpu_core_info(cpu_id);
             if (core) {
@@ -417,25 +478,28 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
             } else {
                 applog(LOG_INFO, "Thread %d pinned to CPU %d", thread_id, cpu_id);
             }
-        } else {
-            /* A single-core pin is commonly rejected under Android cpuset
-             * confinement (EINVAL when the target core is outside the app's
-             * allowed set). Fall back to the whole big-core set so the thread at
-             * least stays on a fast core within whatever the platform permits,
-             * instead of silently dropping to a default (often LITTLE) core. */
+        } else if (cpu_id >= 0) {
+            /* A single-core pin can still be rejected even after the allowed-set
+             * remap above (Android can change the cpuset between the query and
+             * the pin, e.g. on a screen-state transition). Fall back to the
+             * allowed big-core set so the thread at least stays on a fast core
+             * within whatever the platform permits, instead of silently
+             * dropping to a default (often LITTLE) core. */
             int pin_errno = errno;
             cpu_set_t big_set;
             int big_count = 0;
             CPU_ZERO(&big_set);
             for (int i = 0; i < g_num_cpus; i++) {
-                if (g_cpu_cores[i].is_big) {
-                    CPU_SET(g_cpu_cores[i].cpu_id, &big_set);
+                int big_cpu = g_cpu_cores[i].cpu_id;
+                if (g_cpu_cores[i].is_big &&
+                    big_cpu >= 0 && big_cpu < CPU_SETSIZE && CPU_ISSET(big_cpu, &allowed)) {
+                    CPU_SET(big_cpu, &big_set);
                     big_count++;
                 }
             }
             if (big_count > 0 && sched_setaffinity(0, sizeof(big_set), &big_set) == 0) {
                 applog(LOG_WARNING,
-                       "Thread %d: per-core pin to CPU %d rejected (%s); pinned to big-core set instead",
+                       "Thread %d: per-core pin to CPU %d rejected (%s); pinned to allowed big-core set instead",
                        thread_id, cpu_id, strerror(pin_errno));
             } else {
                 applog(LOG_WARNING,
