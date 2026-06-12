@@ -120,6 +120,17 @@ void verusclhash_port2_2_x2_native(void * __restrict random1, void * __restrict 
                                    uint64x2_t * __restrict g_prand2, uint64x2_t * __restrict g_prandex2,
                                    uint64_t * __restrict result1, uint64_t * __restrict result2);
 
+// Fused-dispatch two-nonce CLHash (experimental, VERUS_FUSE=1). Same contract
+// as the x2 entry point; both chains' case dispatches share one 64-way switch.
+void verusclhash_port2_2_x2f_native(void * __restrict random1, void * __restrict random2,
+                                    const unsigned char buf1[64], const unsigned char buf2[64],
+                                    uint64_t keyMask,
+                                    uint16_t * __restrict fixrand1, uint16_t * __restrict fixrandex1,
+                                    uint64x2_t * __restrict g_prand1, uint64x2_t * __restrict g_prandex1,
+                                    uint16_t * __restrict fixrand2, uint16_t * __restrict fixrandex2,
+                                    uint64x2_t * __restrict g_prand2, uint64x2_t * __restrict g_prandex2,
+                                    uint64_t * __restrict result1, uint64_t * __restrict result2);
+
 // Three-nonce interleaved CLHash (experimental, VERUS_X3=1). Same contract as
 // the x2 entry point with a third independent chain.
 void verusclhash_port2_2_x3_native(void * __restrict random1, void * __restrict random2,

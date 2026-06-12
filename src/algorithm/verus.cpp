@@ -357,6 +357,8 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	const bool x2_selftest = x2_st_env && x2_st_env[0] == '1';
 	const char *x3_env = getenv("VERUS_X3");
 	const bool use_x3 = x3_env && x3_env[0] == '1';
+	const char *fuse_env = getenv("VERUS_FUSE");
+	const bool use_fused = fuse_env && fuse_env[0] == '1';
 
 	/* Experimental three-nonce path (VERUS_X3=1 only — never auto-selected).
 	 * Same construction as x2 with a third chain; remainder hashes fall
@@ -470,7 +472,9 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 			prepare_hash_buf(cur_b, nonce_space_b);
 
 			uint64_t inter_a, inter_b;
-			verusclhash_port2_2_x2_native(key_buffer, key_buffer2, cur_a, cur_b,
+			(use_fused ? verusclhash_port2_2_x2f_native
+			           : verusclhash_port2_2_x2_native)(
+				key_buffer, key_buffer2, cur_a, cur_b,
 				kClHashKeyMask,
 				mutated_slots, mirrored_slots,
 				reinterpret_cast<uint64x2_t *>(preserved_values),

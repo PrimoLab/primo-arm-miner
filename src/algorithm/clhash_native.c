@@ -10,24 +10,32 @@ void load_clhash_constants_native(void) {
     // Hardware handles polynomial arithmetic directly
 }
 
-// One iteration of the CLHash repeat loop, factored out so the x2 path can
-// interleave two independent accumulator chains through the same case bodies.
-// always_inline: this must collapse back into the caller's loop exactly as the
-// previous hand-laid loop body did.
-static inline uint64x2_t verus_clhash_iter(uint64x2_t acc,
+// Per-iteration context computed before the case dispatch: selector, the two
+// random key slots (journaled for FixKey), and the pbuf/pbsf input pointers.
+typedef struct {
+    uint64_t selector;
+    uint64x2_t *prand;
+    uint64x2_t *prandex;
+    const uint64x2_t *pbuf;
+    const uint64x2_t *pbsf;
+} verus_iter_ctx_t;
+
+static inline verus_iter_ctx_t verus_clhash_prologue(uint64x2_t acc,
         uint64x2_t * __restrict randomsource,
         const uint64x2_t * __restrict pbuf_copy,
         uint64_t keyMask,
         uint16_t * __restrict fixrand_slot, uint16_t * __restrict fixrandex_slot,
         uint64x2_t * __restrict g_prand_slot, uint64x2_t * __restrict g_prandex_slot)
     __attribute__((always_inline));
-static inline uint64x2_t verus_clhash_iter(uint64x2_t acc,
+static inline verus_iter_ctx_t verus_clhash_prologue(uint64x2_t acc,
         uint64x2_t * __restrict randomsource,
         const uint64x2_t * __restrict pbuf_copy,
         uint64_t keyMask,
         uint16_t * __restrict fixrand_slot, uint16_t * __restrict fixrandex_slot,
         uint64x2_t * __restrict g_prand_slot, uint64x2_t * __restrict g_prandex_slot)
 {
+        verus_iter_ctx_t ctx;
+
         // Extract selector from accumulator (same as portable)
         const uint64_t selector = vgetq_lane_u64(acc, 0);
         const int64_t selector_fudge = selector & 1 ? 1 : -1;
@@ -42,25 +50,40 @@ static inline uint64x2_t verus_clhash_iter(uint64x2_t acc,
         // NOTE: prand and prandex CAN alias (fixrand_val == fixrandex_val when
         // selector bits 5..13 equal bits 32..40 — ~6% of hashes hit this on
         // some iteration), so they must NOT be __restrict-qualified.
-        uint64x2_t *prand = randomsource + fixrand_val;
-        uint64x2_t *prandex = randomsource + fixrandex_val;
+        ctx.prand = randomsource + fixrand_val;
+        ctx.prandex = randomsource + fixrandex_val;
 
         // CRITICAL FIX: Must store to g_prand/g_prandex for FixKey to work!
         // These arrays hold the original values before modification so FixKey can restore them
         // PERFORMANCE FIX: Use explicit vld1q loads like portable version for better scheduling
-        *g_prand_slot = vld1q_u64((uint64_t*)prand);
-        *g_prandex_slot = vld1q_u64((uint64_t*)prandex);
+        *g_prand_slot = vld1q_u64((uint64_t*)ctx.prand);
+        *g_prandex_slot = vld1q_u64((uint64_t*)ctx.prandex);
 
         // CRITICAL FIX: Use pbuf_copy like portable, NOT original buf!
         // Portable accesses pbuf_copy, not original buf
         // PERFORMANCE: Calculate indices once
         const uint64_t pbuf_idx = selector & 3;
-        const uint64x2_t * __restrict pbuf = pbuf_copy + pbuf_idx;
-        const uint64x2_t * __restrict pbsf = pbuf - selector_fudge;
-        
+        ctx.pbuf = pbuf_copy + pbuf_idx;
+        ctx.pbsf = ctx.pbuf - selector_fudge;
+        ctx.selector = selector;
+
+        return ctx;
+}
+
+// One case body of the CLHash repeat loop. switch_val is a runtime value on
+// the classic paths; the fused-dispatch path passes a compile-time constant so
+// the switch folds to a straight-line body per fused case.
+static inline uint64x2_t verus_clhash_case(uint64_t switch_val, uint64x2_t acc,
+        uint64_t selector,
+        uint64x2_t *prand, uint64x2_t *prandex,
+        const uint64x2_t * __restrict pbuf, const uint64x2_t * __restrict pbsf)
+    __attribute__((always_inline));
+static inline uint64x2_t verus_clhash_case(uint64_t switch_val, uint64x2_t acc,
+        uint64_t selector,
+        uint64x2_t *prand, uint64x2_t *prandex,
+        const uint64x2_t * __restrict pbuf, const uint64x2_t * __restrict pbsf)
+{
         // Process switch cases exactly like portable version
-        // PERFORMANCE: Extract switch value once for better optimization
-        const uint64_t switch_val = selector & 0x1c;
         switch (switch_val) {
             case 0: {
                 // MATCH PORTABLE CASE 0 EXACTLY!
@@ -319,6 +342,30 @@ static inline uint64x2_t verus_clhash_iter(uint64x2_t acc,
         return acc;
 }
 
+// One iteration of the CLHash repeat loop, factored out so the x2/x3 paths can
+// interleave independent accumulator chains through the same case bodies.
+// always_inline: this must collapse back into the caller's loop exactly as the
+// previous hand-laid loop body did.
+static inline uint64x2_t verus_clhash_iter(uint64x2_t acc,
+        uint64x2_t * __restrict randomsource,
+        const uint64x2_t * __restrict pbuf_copy,
+        uint64_t keyMask,
+        uint16_t * __restrict fixrand_slot, uint16_t * __restrict fixrandex_slot,
+        uint64x2_t * __restrict g_prand_slot, uint64x2_t * __restrict g_prandex_slot)
+    __attribute__((always_inline));
+static inline uint64x2_t verus_clhash_iter(uint64x2_t acc,
+        uint64x2_t * __restrict randomsource,
+        const uint64x2_t * __restrict pbuf_copy,
+        uint64_t keyMask,
+        uint16_t * __restrict fixrand_slot, uint16_t * __restrict fixrandex_slot,
+        uint64x2_t * __restrict g_prand_slot, uint64x2_t * __restrict g_prandex_slot)
+{
+        const verus_iter_ctx_t ctx = verus_clhash_prologue(acc, randomsource, pbuf_copy,
+                keyMask, fixrand_slot, fixrandex_slot, g_prand_slot, g_prandex_slot);
+        return verus_clhash_case(ctx.selector & 0x1c, acc, ctx.selector,
+                ctx.prand, ctx.prandex, ctx.pbuf, ctx.pbsf);
+}
+
 // Core native CLHash implementation matching __verusclmulwithoutreduction64alignedrepeat_port2_2
 uint64x2_t __verusclmulwithoutreduction64alignedrepeat_port2_2_native(uint64x2_t *randomsource, const uint64x2_t buf[4], uint64_t keyMask,
                                                                        uint16_t *__restrict fixrand, uint16_t *__restrict fixrandex,
@@ -392,6 +439,81 @@ void verusclhash_port2_2_x2_native(void * __restrict random1, void * __restrict 
                                  fixrand2 + i, fixrandex2 + i, g_prand2 + i, g_prandex2 + i);
     }
 
+
+    const uint64x2_t fold = vcombine_u64(vcreate_u64(0x10000), vcreate_u64(0));
+    *result1 = precompReduction64_native(veorq_u64(acc1, fold));
+    *result2 = precompReduction64_native(veorq_u64(acc2, fold));
+}
+
+// Fused-dispatch two-nonce CLHash (experimental, VERUS_FUSE=1). Identical work
+// to the x2 path, but both chains' case dispatches are fused into ONE 64-way
+// switch on the concatenated selector bits. Rationale (perf-counter measured):
+// each chain's 3 dispatch bits are cryptographically random, so both per-chain
+// indirect branches mispredict nearly every iteration and their flush bubbles
+// serialize (~2x11 cycles/iter on A76 — about a third of all Verus cycles).
+// One fused dispatch carries the same 6 bits of entropy but pays ONE bubble.
+// Cost: 64 stamped case-pair bodies (~tens of KB of code) — I-cache pressure
+// is the experiment's open question.
+__attribute__((noinline))
+void verusclhash_port2_2_x2f_native(void * __restrict random1, void * __restrict random2,
+                                    const unsigned char buf1[64], const unsigned char buf2[64],
+                                    uint64_t keyMask,
+                                    uint16_t * __restrict fixrand1, uint16_t * __restrict fixrandex1,
+                                    uint64x2_t * __restrict g_prand1, uint64x2_t * __restrict g_prandex1,
+                                    uint16_t * __restrict fixrand2, uint16_t * __restrict fixrandex2,
+                                    uint64x2_t * __restrict g_prand2, uint64x2_t * __restrict g_prandex2,
+                                    uint64_t * __restrict result1, uint64_t * __restrict result2) {
+
+    uint64x2_t * __restrict rs1 = (uint64x2_t *)random1;
+    uint64x2_t * __restrict rs2 = (uint64x2_t *)random2;
+    const uint64x2_t *b1 = (const uint64x2_t *)buf1;
+    const uint64x2_t *b2 = (const uint64x2_t *)buf2;
+
+    const uint64x2_t pbuf_copy1[4] = {
+        veorq_u64(b1[0], b1[2]),
+        veorq_u64(b1[1], b1[3]),
+        b1[2],
+        b1[3]
+    };
+    const uint64x2_t pbuf_copy2[4] = {
+        veorq_u64(b2[0], b2[2]),
+        veorq_u64(b2[1], b2[3]),
+        b2[2],
+        b2[3]
+    };
+
+    uint64x2_t acc1 = rs1[keyMask + 2];
+    uint64x2_t acc2 = rs2[keyMask + 2];
+
+    for (uint64_t i = 0; i < 32; i++) {
+        const verus_iter_ctx_t c1 = verus_clhash_prologue(acc1, rs1, pbuf_copy1, keyMask,
+                fixrand1 + i, fixrandex1 + i, g_prand1 + i, g_prandex1 + i);
+        const verus_iter_ctx_t c2 = verus_clhash_prologue(acc2, rs2, pbuf_copy2, keyMask,
+                fixrand2 + i, fixrandex2 + i, g_prand2 + i, g_prandex2 + i);
+
+        // 6-bit fused dispatch index: chain1's case in bits [5:3], chain2's in [2:0]
+        const uint32_t fused = (uint32_t)(((c1.selector & 0x1c) << 1) |
+                                          ((c2.selector & 0x1c) >> 2));
+
+#define VERUS_FUSE_CASE(I, J)                                                  \
+        case (((I) << 3) | (J)):                                              \
+            acc1 = verus_clhash_case((uint64_t)(I) << 2, acc1, c1.selector,   \
+                    c1.prand, c1.prandex, c1.pbuf, c1.pbsf);                  \
+            acc2 = verus_clhash_case((uint64_t)(J) << 2, acc2, c2.selector,   \
+                    c2.prand, c2.prandex, c2.pbuf, c2.pbsf);                  \
+            break;
+#define VERUS_FUSE_ROW(I)                                                      \
+        VERUS_FUSE_CASE(I, 0) VERUS_FUSE_CASE(I, 1) VERUS_FUSE_CASE(I, 2)     \
+        VERUS_FUSE_CASE(I, 3) VERUS_FUSE_CASE(I, 4) VERUS_FUSE_CASE(I, 5)     \
+        VERUS_FUSE_CASE(I, 6) VERUS_FUSE_CASE(I, 7)
+
+        switch (fused) {
+        VERUS_FUSE_ROW(0) VERUS_FUSE_ROW(1) VERUS_FUSE_ROW(2) VERUS_FUSE_ROW(3)
+        VERUS_FUSE_ROW(4) VERUS_FUSE_ROW(5) VERUS_FUSE_ROW(6) VERUS_FUSE_ROW(7)
+        }
+#undef VERUS_FUSE_ROW
+#undef VERUS_FUSE_CASE
+    }
 
     const uint64x2_t fold = vcombine_u64(vcreate_u64(0x10000), vcreate_u64(0));
     *result1 = precompReduction64_native(veorq_u64(acc1, fold));
