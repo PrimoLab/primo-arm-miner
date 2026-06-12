@@ -211,6 +211,73 @@ static void miner_query_allowed_cpus(cpu_set_t *allowed)
     }
 }
 
+/* Long-term pin policy, captured once before any thread self-pins. The
+ * inherited affinity mask alone can't drive the hotplug reconciliation tick:
+ * once a thread self-pins, sched_getaffinity returns the pin, not the
+ * original grant — which is how the tick used to escape an external taskset
+ * (it re-pinned "ideal" cores from the full topology). But the inherited mask
+ * also legitimately omits hotplug-parked cores, which we DO want to adopt
+ * when they online. Disambiguation: a core that exists (possible) but was
+ * offline at capture is parked, not forbidden — include it; a core online at
+ * capture yet missing from the inherited mask was deliberately excluded
+ * (taskset/cgroup) — never pin it. Capture failure leaves the policy
+ * unrestricted, i.e. the old behavior. */
+static cpu_set_t g_policy_allowed_cpus;
+static bool g_policy_allowed_valid = false;
+static pthread_once_t g_policy_allowed_once = PTHREAD_ONCE_INIT;
+
+/* Parse a kernel cpulist string (e.g. "0-3,6-7") from sysfs into a set. */
+static bool miner_parse_cpulist_file(const char *path, cpu_set_t *set)
+{
+    char buf[256];
+    FILE *f = fopen(path, "r");
+    bool ok;
+
+    CPU_ZERO(set);
+    if (!f)
+        return false;
+    ok = fgets(buf, sizeof(buf), f) != NULL;
+    fclose(f);
+    if (!ok)
+        return false;
+
+    char *p = buf;
+    while (*p) {
+        while (*p == ',' || *p == ' ' || *p == '\n')
+            p++;
+        if (*p < '0' || *p > '9')
+            break;
+        long first = strtol(p, &p, 10);
+        long last = first;
+        if (*p == '-')
+            last = strtol(p + 1, &p, 10);
+        if (first < 0 || last < first)
+            return false;
+        for (long cpu = first; cpu <= last && cpu < CPU_SETSIZE; cpu++)
+            CPU_SET((int)cpu, set);
+    }
+    return CPU_COUNT(set) > 0;
+}
+
+static void miner_capture_policy_allowed_cpus(void)
+{
+    cpu_set_t inherited, online, possible;
+
+    if (sched_getaffinity(0, sizeof(inherited), &inherited) != 0)
+        return;
+    if (!miner_parse_cpulist_file("/sys/devices/system/cpu/online", &online) ||
+        !miner_parse_cpulist_file("/sys/devices/system/cpu/possible", &possible))
+        return;
+
+    CPU_ZERO(&g_policy_allowed_cpus);
+    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) {
+        if (CPU_ISSET(cpu, &inherited) ||
+            (CPU_ISSET(cpu, &possible) && !CPU_ISSET(cpu, &online)))
+            CPU_SET(cpu, &g_policy_allowed_cpus);
+    }
+    g_policy_allowed_valid = true;
+}
+
 /* Topology-order pin target for this thread, restricted to the allowed set.
  * Returns -1 when no core in the preferred order is allowed. */
 static int select_allowed_cpu_for_thread(int thread_id, const cpu_set_t *allowed)
@@ -262,8 +329,10 @@ static int g_thread_topology_gen[MAX_THREADS];
 
 static int select_affinity_cpu_for_thread(int thread_id, const cpu_set_t *allowed);
 
-/* Ideal (topology-order) core for a thread, ignoring the current allowed
- * set: a core parked by hotplug right now is still the right long-term home.
+/* Ideal (topology-order) core for a thread, ignoring the CURRENT allowed
+ * set — a core parked by hotplug right now is still the right long-term
+ * home — but never outside the startup pin policy: cores the user/platform
+ * deliberately excluded (taskset, cgroup) must not be adopted by the tick.
  * Single source of truth for startup pinning and the reconciliation tick. */
 static int compute_ideal_cpu_for_thread(int thread_id)
 {
@@ -275,10 +344,15 @@ static int compute_ideal_cpu_for_thread(int thread_id)
             if (cpu_id >= 0 && cpu_id < CPU_SETSIZE)
                 CPU_SET(cpu_id, &full_set);
         }
+        if (g_policy_allowed_valid)
+            CPU_AND(&full_set, &full_set, &g_policy_allowed_cpus);
         return select_affinity_cpu_for_thread(thread_id, &full_set);
     }
-    if (g_core_order_count > 0)
+    if (g_core_order_count > 0) {
+        if (g_policy_allowed_valid)
+            return select_allowed_cpu_for_thread(thread_id, &g_policy_allowed_cpus);
         return get_cpu_for_thread(thread_id);
+    }
     return -1;
 }
 
@@ -520,6 +594,9 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
     // Pin thread to a specific CPU core. Remember which core we asked for so the
     // post-warmup readback below can tell whether the platform actually honored
     // it (Android cpuset cgroups can clamp a "successful" pin to another cluster).
+    // Capture the pin policy first: this thread has not self-pinned yet, so its
+    // affinity mask is still the inherited (user/platform-granted) one.
+    pthread_once(&g_policy_allowed_once, miner_capture_policy_allowed_cpus);
     int intended_cpu = -1;
     cpu_set_t allowed;
     miner_query_allowed_cpus(&allowed);
