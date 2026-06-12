@@ -398,6 +398,70 @@ void verusclhash_port2_2_x2_native(void * __restrict random1, void * __restrict 
     *result2 = precompReduction64_native(veorq_u64(acc2, fold));
 }
 
+// Three-nonce interleaved CLHash (experimental). Same construction as the x2
+// path with a third independent chain: the per-iteration serial chain leaves
+// idle issue slots even with two chains in flight, so a third may pay on wide
+// OoO cores. Each chain's result is bit-identical to the single-chain path.
+__attribute__((noinline))
+void verusclhash_port2_2_x3_native(void * __restrict random1, void * __restrict random2,
+                                   void * __restrict random3,
+                                   const unsigned char buf1[64], const unsigned char buf2[64],
+                                   const unsigned char buf3[64],
+                                   uint64_t keyMask,
+                                   uint16_t * __restrict fixrand1, uint16_t * __restrict fixrandex1,
+                                   uint64x2_t * __restrict g_prand1, uint64x2_t * __restrict g_prandex1,
+                                   uint16_t * __restrict fixrand2, uint16_t * __restrict fixrandex2,
+                                   uint64x2_t * __restrict g_prand2, uint64x2_t * __restrict g_prandex2,
+                                   uint16_t * __restrict fixrand3, uint16_t * __restrict fixrandex3,
+                                   uint64x2_t * __restrict g_prand3, uint64x2_t * __restrict g_prandex3,
+                                   uint64_t * __restrict result1, uint64_t * __restrict result2,
+                                   uint64_t * __restrict result3) {
+
+    uint64x2_t * __restrict rs1 = (uint64x2_t *)random1;
+    uint64x2_t * __restrict rs2 = (uint64x2_t *)random2;
+    uint64x2_t * __restrict rs3 = (uint64x2_t *)random3;
+    const uint64x2_t *b1 = (const uint64x2_t *)buf1;
+    const uint64x2_t *b2 = (const uint64x2_t *)buf2;
+    const uint64x2_t *b3 = (const uint64x2_t *)buf3;
+
+    const uint64x2_t pbuf_copy1[4] = {
+        veorq_u64(b1[0], b1[2]),
+        veorq_u64(b1[1], b1[3]),
+        b1[2],
+        b1[3]
+    };
+    const uint64x2_t pbuf_copy2[4] = {
+        veorq_u64(b2[0], b2[2]),
+        veorq_u64(b2[1], b2[3]),
+        b2[2],
+        b2[3]
+    };
+    const uint64x2_t pbuf_copy3[4] = {
+        veorq_u64(b3[0], b3[2]),
+        veorq_u64(b3[1], b3[3]),
+        b3[2],
+        b3[3]
+    };
+
+    uint64x2_t acc1 = rs1[keyMask + 2];
+    uint64x2_t acc2 = rs2[keyMask + 2];
+    uint64x2_t acc3 = rs3[keyMask + 2];
+
+    for (uint64_t i = 0; i < 32; i++) {
+        acc1 = verus_clhash_iter(acc1, rs1, pbuf_copy1, keyMask,
+                                 fixrand1 + i, fixrandex1 + i, g_prand1 + i, g_prandex1 + i);
+        acc2 = verus_clhash_iter(acc2, rs2, pbuf_copy2, keyMask,
+                                 fixrand2 + i, fixrandex2 + i, g_prand2 + i, g_prandex2 + i);
+        acc3 = verus_clhash_iter(acc3, rs3, pbuf_copy3, keyMask,
+                                 fixrand3 + i, fixrandex3 + i, g_prand3 + i, g_prandex3 + i);
+    }
+
+    const uint64x2_t fold = vcombine_u64(vcreate_u64(0x10000), vcreate_u64(0));
+    *result1 = precompReduction64_native(veorq_u64(acc1, fold));
+    *result2 = precompReduction64_native(veorq_u64(acc2, fold));
+    *result3 = precompReduction64_native(veorq_u64(acc3, fold));
+}
+
 __attribute__((noinline))
 uint64_t verusclhash_port2_2_native(void *random, const unsigned char buf[64], uint64_t keyMask,
                                     uint16_t *__restrict fixrand, uint16_t *__restrict fixrandex,
