@@ -342,8 +342,8 @@ static inline uint64x2_t verus_clhash_case(uint64_t switch_val, uint64x2_t acc,
         return acc;
 }
 
-// One iteration of the CLHash repeat loop, factored out so the x2/x3 paths can
-// interleave independent accumulator chains through the same case bodies.
+// One iteration of the CLHash repeat loop, factored out so the x2 path can
+// interleave two independent accumulator chains through the same case bodies.
 // always_inline: this must collapse back into the caller's loop exactly as the
 // previous hand-laid loop body did.
 static inline uint64x2_t verus_clhash_iter(uint64x2_t acc,
@@ -445,15 +445,17 @@ void verusclhash_port2_2_x2_native(void * __restrict random1, void * __restrict 
     *result2 = precompReduction64_native(veorq_u64(acc2, fold));
 }
 
-// Fused-dispatch two-nonce CLHash (experimental, VERUS_FUSE=1). Identical work
-// to the x2 path, but both chains' case dispatches are fused into ONE 64-way
-// switch on the concatenated selector bits. Rationale (perf-counter measured):
-// each chain's 3 dispatch bits are cryptographically random, so both per-chain
-// indirect branches mispredict nearly every iteration and their flush bubbles
+// Fused-dispatch two-nonce CLHash. Identical work to the x2 path, but both
+// chains' case dispatches are fused into ONE 64-way switch on the
+// concatenated selector bits. Rationale (perf-counter measured): each chain's
+// 3 dispatch bits are cryptographically random, so both per-chain indirect
+// branches mispredict nearly every iteration and their flush bubbles
 // serialize (~2x11 cycles/iter on A76 — about a third of all Verus cycles).
 // One fused dispatch carries the same 6 bits of entropy but pays ONE bubble.
-// Cost: 64 stamped case-pair bodies (~tens of KB of code) — I-cache pressure
-// is the experiment's open question.
+// Cost: 64 stamped case-pair bodies (~37KB of code, exactly 1 indirect br) —
+// wins on ARM A75+ front-ends (+6-9%), loses badly on Samsung Mongoose M4
+// (-24%), so it is auto-selected per core (verus_use_fused_for_current_cpu
+// in verus.cpp); VERUS_FUSE=0/1 forces.
 __attribute__((noinline))
 void verusclhash_port2_2_x2f_native(void * __restrict random1, void * __restrict random2,
                                     const unsigned char buf1[64], const unsigned char buf2[64],

@@ -222,9 +222,9 @@ algorithm:
 The first slice lands at a random point within the first cycle (re-drawn
 every start, so the fee can't be skipped with scheduled restarts); very
 short sessions usually pay nothing. If the dev pool is ever unreachable,
-the slice is skipped immediately — your mining time is never held up by it. Implemented in `src/dev_fee.cpp`; the fee and the donations
-below are the project's only funding, and forks are of course free to
-change it (GPL).
+the slice is skipped immediately — your mining time is never held up by it.
+Implemented in `src/dev_fee.cpp`; the fee and the donations below are the
+project's only funding, and forks are of course free to change it (GPL).
 
 ## Donations
 

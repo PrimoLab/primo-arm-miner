@@ -120,8 +120,10 @@ void verusclhash_port2_2_x2_native(void * __restrict random1, void * __restrict 
                                    uint64x2_t * __restrict g_prand2, uint64x2_t * __restrict g_prandex2,
                                    uint64_t * __restrict result1, uint64_t * __restrict result2);
 
-// Fused-dispatch two-nonce CLHash (experimental, VERUS_FUSE=1). Same contract
-// as the x2 entry point; both chains' case dispatches share one 64-way switch.
+// Fused-dispatch two-nonce CLHash. Same contract as the x2 entry point; both
+// chains' case dispatches share one 64-way switch (one mispredict bubble per
+// pair-iteration instead of two). Auto-selected on ARM A75+-generation big
+// cores; VERUS_FUSE=0/1 forces.
 void verusclhash_port2_2_x2f_native(void * __restrict random1, void * __restrict random2,
                                     const unsigned char buf1[64], const unsigned char buf2[64],
                                     uint64_t keyMask,

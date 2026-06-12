@@ -67,6 +67,9 @@ int g_num_little_cores = 0;
 int g_core_order[MAX_CPUS];
 int g_core_order_count = 0;
 
+/* NOTE: when adding a new ARM (0x41) big-core part here, also consider
+ * verus_use_fused_for_current_cpu() in verus.cpp — its fused-dispatch
+ * allowlist tracks the ARM A75+ subset of this list. */
 static bool is_big_core(int implementer, int part_number) {
     switch (implementer) {
     case 0x41: /* ARM Limited */

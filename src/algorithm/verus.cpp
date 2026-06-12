@@ -96,9 +96,10 @@ extern "C" bool verus_init_runtime(void)
 
 /* Decide whether this thread should run the two-nonce interleaved CLHash.
  * The win comes from out-of-order execution overlapping the two serial
- * dependency chains; in-order little cores can't do that and pay a small
- * penalty instead. Unknown/homogeneous topologies default to x2 because the
- * payoff is asymmetric (+24% on OoO vs -1% on in-order). */
+ * dependency chains; in-order little cores can't do that (measured ±1%,
+ * SoC-dependent: +1.4% RK3588 A55, −0.9% Exynos 9820 A55 — x1 stays the
+ * LITTLE default). Unknown/homogeneous topologies default to x2 because the
+ * payoff is asymmetric (+24% on OoO vs ~±1% on in-order). */
 static bool verus_use_x2_for_current_cpu(void)
 {
 	const char *e = getenv("VERUS_X2");
@@ -123,7 +124,10 @@ static bool verus_use_x2_for_current_cpu(void)
  * +5.9% on Cortex-A76 and +9% on Cortex-A75, but -24% on Samsung Mongoose M4.
  * Default fused only on ARM-designed big cores of the A75+ generation; custom
  * cores (Samsung M-series, Kryo-stamped) and older ARM parts (A73 and earlier)
- * stay on the per-chain dispatch. VERUS_FUSE=0/1 forces. */
+ * stay on the per-chain dispatch. VERUS_FUSE=0/1 forces.
+ * NOTE: when ARM ships a new big-core part, add it BOTH here and to
+ * is_big_core() in cpu_features.c — the lists overlap but serve different
+ * policies (big-core classification spans Samsung/Qualcomm parts too). */
 static bool verus_use_fused_for_current_cpu(void)
 {
 	const char *e = getenv("VERUS_FUSE");
@@ -379,11 +383,12 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	};
 
 	/* Two-nonce interleaved path: hash nonce pairs through the x2 CLHash so
-	 * the core overlaps the two serial latency chains. Measured on RK3588:
-	 * +24% on A76 (OoO), -1% on A55 (in-order) — so default to x2 on big
-	 * cores and x1 on LITTLE, re-checked each scan chunk in case the thread
-	 * migrated. VERUS_X2=0/1 forces; VERUS_X2_SELFTEST=1 cross-checks every
-	 * pair against the x1 path. */
+	 * the core overlaps the two serial latency chains (+24% on A76, ~±1% on
+	 * in-order A55) — default x2 on big cores, x1 on LITTLE, re-checked each
+	 * scan chunk in case the thread migrated. ARM A75+ big cores additionally
+	 * route the pair through the fused-dispatch variant (use_fused below).
+	 * VERUS_X2=0/1 forces; VERUS_X2_SELFTEST=1 cross-checks every pair
+	 * against the x1 path (covers the fused variant too). */
 	const bool use_x2 = verus_use_x2_for_current_cpu();
 	const char *x2_st_env = getenv("VERUS_X2_SELFTEST");
 	const bool x2_selftest = x2_st_env && x2_st_env[0] == '1';
