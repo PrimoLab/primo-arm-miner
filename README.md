@@ -21,11 +21,11 @@ of the last decade.
 
 - **Pure ARM-native, no x86 compatibility layer** — Verus, SHA256d, and scrypt paths written directly in ARM intrinsics and AArch64 assembly, not translated from SSE
 - **Hardware crypto extensions** — ARMv8 PMULL, AES, and SHA2 instructions on the hot paths
-- **Per-core runtime optimization** — big.LITTLE topology detected at startup; interleaved CLHash and SoA scrypt kernels enabled per thread where they win
+- **Per-core runtime optimization** — big.LITTLE topology detected at startup; interleaved CLHash, fused-dispatch CLHash, and SoA scrypt kernels enabled per thread where they win
 - **Hotplug-resilient core pinning** — pins are chosen from the platform-allowed cpuset and reconciled continuously; threads adopt cores that Android parks/wakes at runtime instead of losing their pins
 - **ccminer-compatible control surface** — same CLI flags, JSON config format, and monitoring API
 - **Full stratum support** — standard (SHA256d/scrypt) and Verus/equihash variants, multi-pool failover
-- **Tiny footprint** — a single ~186 KB binary, three runtime libraries
+- **Tiny footprint** — a single ~226 KB binary, three runtime libraries
 
 ## Performance
 
@@ -33,13 +33,14 @@ Measured on RK3588 (4×Cortex-A55 @ 1.8 GHz + 4×Cortex-A76 @ 2.25–2.35 GHz):
 
 | Algorithm | A76 single core | 8 threads (4×A55 + 4×A76) |
 | --- | --- | --- |
-| Verus (VerusHash v2.2) | ~1.38 MH/s | ~7.4 MH/s |
+| Verus (VerusHash v2.2) | ~1.44 MH/s | ~7.5 MH/s |
 | SHA256d | ~16.3 MH/s | ~90 MH/s |
 | Scrypt (N=1024) | ~4.8 kH/s | ~25.9 kH/s |
 
-Galaxy S10+ (Exynos 9820, Termux): ~5.5 MH/s Verus across 8 threads.
-Per-core optimizations (two-nonce interleaved CLHash on big cores, 4-lane
-SoA scrypt) are selected automatically per thread at runtime.
+Galaxy S10+ (Exynos 9820, Termux): ~5.5-5.7 MH/s Verus across 8 threads.
+Per-core optimizations (two-nonce interleaved CLHash on big cores, fused
+case dispatch on ARM A75+-generation big cores, 4-lane SoA scrypt) are
+selected automatically per thread at runtime.
 
 Numbers vary with thermal headroom, governor, and per-SoC core mix.
 

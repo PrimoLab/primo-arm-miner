@@ -315,13 +315,6 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	uint16_t mutated_slots2[VERUS_CLHASH_MUT_SLOTS] __attribute__ ((aligned(64)));
 	uint16_t mirrored_slots2[VERUS_CLHASH_MUT_SLOTS] __attribute__ ((aligned(64)));
 
-	// Chain-C state for the experimental three-nonce path (VERUS_X3=1).
-	verus_vec128_t key_buffer3[VERUS_KEY_VECTORS] __attribute__ ((aligned(64)));
-	verus_vec128_t preserved_values3[VERUS_GPRAND_SLOTS] __attribute__ ((aligned(64)));
-	verus_vec128_t preserved_values_mirror3[VERUS_GPRAND_SLOTS] __attribute__ ((aligned(64)));
-	uint16_t mutated_slots3[VERUS_CLHASH_MUT_SLOTS] __attribute__ ((aligned(64)));
-	uint16_t mirrored_slots3[VERUS_CLHASH_MUT_SLOTS] __attribute__ ((aligned(64)));
-
 	uint8_t serialized_job[kSerializedJobBytes] = { 0 };
 	uint8_t *solution_bytes = &serialized_job[kHeaderBytes];
 	uint8_t *work_solution = miner_work_solution(work);
@@ -394,102 +387,9 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	const bool use_x2 = verus_use_x2_for_current_cpu();
 	const char *x2_st_env = getenv("VERUS_X2_SELFTEST");
 	const bool x2_selftest = x2_st_env && x2_st_env[0] == '1';
-	const char *x3_env = getenv("VERUS_X3");
-	const bool use_x3 = x3_env && x3_env[0] == '1';
 	const bool use_fused = verus_use_fused_for_current_cpu();
 
-	/* Experimental three-nonce path (VERUS_X3=1 only — never auto-selected).
-	 * Same construction as x2 with a third chain; remainder hashes fall
-	 * through to the x2/x1 loops below. */
-	if (use_x3) {
-		alignas(16) uint8_t cur_a[kHashStateBytes];
-		alignas(16) uint8_t cur_b[kHashStateBytes];
-		alignas(16) uint8_t cur_c[kHashStateBytes];
-		uint8_t nonce_space_b[kNonceBytes];
-		uint8_t nonce_space_c[kNonceBytes];
-		uint32_t candidate_b[8] = { 0 };
-		uint32_t candidate_c[8] = { 0 };
-
-		memcpy(key_buffer2, key_buffer, sizeof(key_buffer2));
-		memcpy(key_buffer3, key_buffer, sizeof(key_buffer3));
-		memcpy(cur_a, blockhash_half, kHashStateBytes);
-		memcpy(cur_b, blockhash_half, kHashStateBytes);
-		memcpy(cur_c, blockhash_half, kHashStateBytes);
-		memcpy(nonce_space_b, nonce_space, kNonceBytes);
-		memcpy(nonce_space_c, nonce_space, kNonceBytes);
-
-		while (scanned_hashes + 3 <= max_hashes &&
-		       !miner_work_restart_requested(work->restart_generation) &&
-		       !miner_should_abort()) {
-			((uint32_t *)(&nonce_space[11]))[0] = nonce_buf;
-			((uint32_t *)(&nonce_space_b[11]))[0] = nonce_buf + 1;
-			((uint32_t *)(&nonce_space_c[11]))[0] = nonce_buf + 2;
-
-			prepare_hash_buf(cur_a, nonce_space);
-			prepare_hash_buf(cur_b, nonce_space_b);
-			prepare_hash_buf(cur_c, nonce_space_c);
-
-			uint64_t inter_a, inter_b, inter_c;
-			verusclhash_port2_2_x3_native(key_buffer, key_buffer2, key_buffer3,
-				cur_a, cur_b, cur_c,
-				kClHashKeyMask,
-				mutated_slots, mirrored_slots,
-				reinterpret_cast<uint64x2_t *>(preserved_values),
-				reinterpret_cast<uint64x2_t *>(preserved_values_mirror),
-				mutated_slots2, mirrored_slots2,
-				reinterpret_cast<uint64x2_t *>(preserved_values2),
-				reinterpret_cast<uint64x2_t *>(preserved_values_mirror2),
-				mutated_slots3, mirrored_slots3,
-				reinterpret_cast<uint64x2_t *>(preserved_values3),
-				reinterpret_cast<uint64x2_t *>(preserved_values_mirror3),
-				&inter_a, &inter_b, &inter_c);
-
-			finalize_verus_hash((unsigned char *)candidate_hash, cur_a, inter_a,
-				key_buffer, mutated_slots, mirrored_slots,
-				preserved_values, preserved_values_mirror);
-			finalize_verus_hash((unsigned char *)candidate_b, cur_b, inter_b,
-				key_buffer2, mutated_slots2, mirrored_slots2,
-				preserved_values2, preserved_values_mirror2);
-			finalize_verus_hash((unsigned char *)candidate_c, cur_c, inter_c,
-				key_buffer3, mutated_slots3, mirrored_slots3,
-				preserved_values3, preserved_values_mirror3);
-			scanned_hashes += 3;
-
-			if (x2_selftest) {
-				alignas(16) uint8_t scratch[kHashStateBytes];
-				uint32_t ref_hash[8];
-				const uint32_t *cands[3] =
-					{ candidate_hash, candidate_b, candidate_c };
-				const uint8_t *nspaces[3] =
-					{ nonce_space, nonce_space_b, nonce_space_c };
-				for (int c = 0; c < 3; c++) {
-					memcpy(scratch, blockhash_half, kHashStateBytes);
-					compute_verus_hash((unsigned char *)ref_hash, scratch, (unsigned char *)nspaces[c],
-						key_buffer, mutated_slots, mirrored_slots,
-						preserved_values, preserved_values_mirror);
-					if (memcmp(ref_hash, cands[c], sizeof(ref_hash))) {
-						applog(LOG_ERR, "VERUS_X3 selftest FAILED chain %c (nonce 0x%08x)",
-							'A' + c, nonce_buf + c);
-						abort();
-					}
-				}
-			}
-
-			if (try_record_share(candidate_hash, nonce_space))
-				goto out;
-			if (try_record_share(candidate_b, nonce_space_b)) {
-				nonce_buf++;
-				goto out;
-			}
-			if (try_record_share(candidate_c, nonce_space_c)) {
-				nonce_buf += 2;
-				goto out;
-			}
-			nonce_buf += 3;
-		}
-	}
-
-	if (use_x2 && !use_x3) {
+	if (use_x2) {
 		alignas(16) uint8_t cur_a[kHashStateBytes];
 		alignas(16) uint8_t cur_b[kHashStateBytes];
 		uint8_t nonce_space_b[kNonceBytes];
