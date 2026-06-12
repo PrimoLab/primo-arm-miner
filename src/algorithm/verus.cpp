@@ -117,6 +117,45 @@ static bool verus_use_x2_for_current_cpu(void)
 	return true;
 }
 
+/* Decide whether this thread's x2 loop should use the fused 64-way dispatch.
+ * The win (one mispredict bubble per pair-iteration instead of two serialized
+ * ones) depends on the front-end swallowing a ~37KB jump-table body: measured
+ * +5.9% on Cortex-A76 and +9% on Cortex-A75, but -24% on Samsung Mongoose M4.
+ * Default fused only on ARM-designed big cores of the A75+ generation; custom
+ * cores (Samsung M-series, Kryo-stamped) and older ARM parts (A73 and earlier)
+ * stay on the per-chain dispatch. VERUS_FUSE=0/1 forces. */
+static bool verus_use_fused_for_current_cpu(void)
+{
+	const char *e = getenv("VERUS_FUSE");
+	if (e && e[0])
+		return e[0] != '0';
+
+	int cpu = sched_getcpu();
+	if (cpu < 0)
+		return false;
+	for (int i = 0; i < g_num_cpus; i++) {
+		if (g_cpu_cores[i].cpu_id != cpu)
+			continue;
+		switch (g_cpu_cores[i].part_number) {
+		case 0xD0A: /* Cortex-A75 — measured +9% */
+		case 0xD0B: /* Cortex-A76 — measured +5.9% */
+		case 0xD0D: /* Cortex-A77  */
+		case 0xD41: /* Cortex-A78  */
+		case 0xD44: /* Cortex-X1   */
+		case 0xD47: /* Cortex-A710 */
+		case 0xD48: /* Cortex-X2   */
+		case 0xD4D: /* Cortex-A715 */
+		case 0xD4E: /* Cortex-X3   */
+		case 0xD81: /* Cortex-A720 */
+		case 0xD84: /* Cortex-X4   */
+			return true;
+		default:
+			return false;
+		}
+	}
+	return false;
+}
+
 static void generate_cl_key(unsigned char *seed_bytes_32, verus_vec128_t *key_buffer)
 {
 	// Expand the 64-byte half-hash into the CLHash key schedule used by Verus.
@@ -357,8 +396,7 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	const bool x2_selftest = x2_st_env && x2_st_env[0] == '1';
 	const char *x3_env = getenv("VERUS_X3");
 	const bool use_x3 = x3_env && x3_env[0] == '1';
-	const char *fuse_env = getenv("VERUS_FUSE");
-	const bool use_fused = fuse_env && fuse_env[0] == '1';
+	const bool use_fused = verus_use_fused_for_current_cpu();
 
 	/* Experimental three-nonce path (VERUS_X3=1 only — never auto-selected).
 	 * Same construction as x2 with a third chain; remainder hashes fall
