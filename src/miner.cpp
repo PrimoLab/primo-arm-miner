@@ -261,6 +261,18 @@ static bool miner_parse_cpulist_file(const char *path, cpu_set_t *set)
 
 static void miner_capture_policy_allowed_cpus(void)
 {
+#ifdef __ANDROID__
+    /* Android moves processes between cpuset cgroups at runtime (foreground/
+     * background/vendor-specific), so the affinity inherited at startup is
+     * NOT stable user intent — freezing it permanently exiles threads from
+     * big cores that were merely cpuset-restricted at launch (field-hit:
+     * SD680 stuck at ~2/3 hashrate with the tick "re-pinning" workers back
+     * onto little cores). The kernel enforces real cgroup limits with EINVAL,
+     * which the tick already handles by retrying, so the dynamic behavior is
+     * both safe and self-healing here. External taskset containment is a
+     * desktop-Linux workflow; leave the policy unrestricted on Android. */
+    return;
+#endif
     cpu_set_t inherited, online, possible;
 
     if (sched_getaffinity(0, sizeof(inherited), &inherited) != 0)
