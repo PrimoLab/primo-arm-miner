@@ -396,10 +396,14 @@ static bool g_thermal_init = false;
 
 static void detect_thermal_zones(void) {
 #ifdef __linux__
+    int fallback_zones[MAX_THERMAL_ZONES];
+    int num_fallback = 0;
+
     g_num_cpu_zones = 0;
     g_thermal_init = true;
 
-    for (int z = 0; z < 32 && g_num_cpu_zones < MAX_THERMAL_ZONES; z++) {
+    /* MediaTek BSPs commonly expose dozens of zones; scan a wide range. */
+    for (int z = 0; z < 128 && g_num_cpu_zones < MAX_THERMAL_ZONES; z++) {
         char path[128];
         char type[64] = {0};
         FILE *f;
@@ -416,13 +420,31 @@ static void detect_thermal_zones(void) {
 
         // Match CPU-related thermal zones
         // Common names: cpu-thermal, soc-thermal, bigcore0-thermal,
-        // littlecore-thermal, cpu_thermal, tsens_tz_sensor (Qualcomm)
+        // littlecore-thermal, cpu_thermal, tsens_tz_sensor (Qualcomm),
+        // mtkts* (MediaTek), BIG/MID/LITTLE (Exynos)
         if (strstr(type, "cpu") || strstr(type, "CPU") ||
             strstr(type, "soc") || strstr(type, "SOC") ||
             strstr(type, "bigcore") || strstr(type, "littlecore") ||
-            strstr(type, "tsens")) {
+            strstr(type, "tsens") || strstr(type, "mtkts") ||
+            strstr(type, "BIG") || strstr(type, "MID") ||
+            strstr(type, "LITTLE") || strstr(type, "cluster")) {
             g_cpu_thermal_zones[g_num_cpu_zones++] = z;
+        } else if (num_fallback < MAX_THERMAL_ZONES) {
+            /* Zone exists but the OEM name didn't match — remember it so
+             * unmatched platforms still report the hottest readable zone
+             * instead of nothing. */
+            fallback_zones[num_fallback++] = z;
         }
+    }
+
+    /* No CPU-named zone anywhere: fall back to every existing zone. Under
+     * mining load the CPU/SoC zone is the hottest, so max() over all of
+     * them is a good proxy. Cached once — individual zones that fail to
+     * read (sepolicy, disabled sensors) are skipped per read, and must NOT
+     * abort the others (MediaTek zone 0 is often one of the broken ones). */
+    if (g_num_cpu_zones == 0) {
+        for (int i = 0; i < num_fallback; i++)
+            g_cpu_thermal_zones[g_num_cpu_zones++] = fallback_zones[i];
     }
 #endif
 }
@@ -454,24 +476,12 @@ int get_cpu_temp(void) {
 
     int max_temp = -1;
 
-    if (g_num_cpu_zones > 0) {
-        /* Use the matched CPU/SoC zones */
-        for (int i = 0; i < g_num_cpu_zones; i++) {
-            int t = read_thermal_zone_temp(g_cpu_thermal_zones[i]);
-            if (t > max_temp) max_temp = t;
-        }
-    } else {
-        /* No zones matched our patterns — scan all zones as a fallback.
-         * Common on Android where type names vary by OEM/BSP. */
-        for (int z = 0; z < 64; z++) {
-            int t = read_thermal_zone_temp(z);
-            if (t == -1) {
-                /* If zone 0 itself isn't readable, stop early */
-                if (z == 0) break;
-                continue;
-            }
-            if (t > max_temp) max_temp = t;
-        }
+    /* Detection cached the zone list (CPU-named zones, or every existing
+     * zone when no name matched). Unreadable zones return -1 and are simply
+     * skipped — never abort the scan on one bad zone. */
+    for (int i = 0; i < g_num_cpu_zones; i++) {
+        int t = read_thermal_zone_temp(g_cpu_thermal_zones[i]);
+        if (t > max_temp) max_temp = t;
     }
 
     return max_temp;
