@@ -78,12 +78,19 @@ static bool is_big_core(int implementer, int part_number) {
         case 0xD0B: /* Cortex-A76  */
         case 0xD0D: /* Cortex-A77  */
         case 0xD41: /* Cortex-A78  */
+        case 0xD4B: /* Cortex-A78C */
         case 0xD44: /* Cortex-X1   */
+        case 0xD4C: /* Cortex-X1C  */
         case 0xD47: /* Cortex-A710 */
         case 0xD48: /* Cortex-X2   */
         case 0xD4D: /* Cortex-A715 */
         case 0xD4E: /* Cortex-X3   */
         case 0xD81: /* Cortex-A720 */
+        case 0xD87: /* Cortex-A725 */
+        case 0xD85: /* Cortex-X925 (a.k.a. Cortex-X5) */
+        case 0xD8B: /* C1-Pro     (ARM 2025 "Lumex"/C1 rebrand) */
+        case 0xD8C: /* C1-Ultra   */
+        case 0xD90: /* C1-Premium */
         case 0xD82: /* Cortex-X4 — was previously (wrongly) listed as 0xD84.
                      * 0xD84 is Neoverse-V3 (server, never in phones); the real
                      * Cortex-X4 prime in SD8Gen3 / Dimensity 9300 / Exynos 2400
@@ -100,6 +107,12 @@ static bool is_big_core(int implementer, int part_number) {
                 * cores — listing them as big inverted cluster detection on
                 * SDM845 (Gold=0x802 was missing → A75 ran the x1 CLHash path). */
         switch (part_number) {
+        case 0x001: /* Oryon (Snapdragon 8 Elite, 2024+) — custom perf core.
+                     * Marked big so it gets the x2 CLHash path, but like the
+                     * Samsung Mongoose it is deliberately kept OFF the Verus
+                     * fused-dispatch allowlist (custom wide front-end; the fused
+                     * jump table regressed -24% on the custom M4 — test before
+                     * enabling). */
         case 0x802: /* Kryo 3XX Gold   (SDM845, Cortex-A75 class) */
         case 0x804: /* Kryo 4XX/5XX Gold/Prime (SD855/865, A76/A77 class) */
             return true;
@@ -247,6 +260,7 @@ static void detect_cpu_topology_now(void) {
 
         cpu_core_info_t *core = &g_cpu_cores[g_num_cpus];
         core->cpu_id = cpu;
+        core->implementer = 0;
         core->part_number = 0;
         core->is_big = false;
         core->max_freq_khz = 0;
@@ -270,6 +284,7 @@ static void detect_cpu_topology_now(void) {
         if (implementer < 0)
             read_cpuinfo_midr(cpu, &implementer, &part);
         if (implementer >= 0) {
+            core->implementer = implementer;
             core->part_number = part;
             core->is_big      = is_big_core(implementer, part);
         }
@@ -414,29 +429,58 @@ int get_cpu_cur_freq_khz(int cpu_id) {
 #endif
 }
 
-/* Human-readable core name for log hints. Keyed on the MIDR part number alone;
- * the ARM (0xDxx), Qualcomm Kryo (0x80x) and Samsung Mongoose (0x00x) ranges do
- * not collide, so the implementer is not needed here. Unknown parts fall back to
- * a generic label rather than a number. */
-const char *cpu_part_name(int part_number) {
-    switch (part_number) {
-    case 0xD05: return "Cortex-A55";
-    case 0xD0A: return "Cortex-A75";
-    case 0xD0B: return "Cortex-A76";
-    case 0xD0D: return "Cortex-A77";
-    case 0xD41: return "Cortex-A78";
-    case 0xD44: return "Cortex-X1";
-    case 0xD47: return "Cortex-A710";
-    case 0xD48: return "Cortex-X2";
-    case 0xD4D: return "Cortex-A715";
-    case 0xD4E: return "Cortex-X3";
-    case 0xD81: return "Cortex-A720";
-    case 0xD84: return "Cortex-X4";
-    case 0x802: return "Kryo Gold (A75-class)";
-    case 0x804: return "Kryo Gold/Prime";
-    case 0x001: case 0x002: case 0x003:
-    case 0x004: case 0x005: return "Exynos Mongoose";
-    default:    return "big core";
+/* Human-readable core name for log hints. Implementer-aware: part numbers DO
+ * collide across implementers (e.g. 0x001 is Qualcomm Oryon but also Samsung
+ * Exynos-M1), so both fields are needed. Names per util-linux lscpu-arm. Unknown
+ * parts fall back to a generic per-vendor label rather than a raw number. */
+const char *cpu_part_name(int implementer, int part_number) {
+    switch (implementer) {
+    case 0x41: /* ARM */
+        switch (part_number) {
+        /* LITTLE / efficiency */
+        case 0xD03: return "Cortex-A53";
+        case 0xD04: return "Cortex-A35";
+        case 0xD05: return "Cortex-A55";
+        case 0xD46: return "Cortex-A510";
+        case 0xD80: return "Cortex-A520";
+        case 0xD8A: return "C1-Nano";
+        case 0xD8F: return "Cortex-A320";
+        /* performance */
+        case 0xD07: return "Cortex-A57";
+        case 0xD08: return "Cortex-A72";
+        case 0xD09: return "Cortex-A73";
+        case 0xD0A: return "Cortex-A75";
+        case 0xD0B: return "Cortex-A76";
+        case 0xD0D: return "Cortex-A77";
+        case 0xD41: return "Cortex-A78";
+        case 0xD4B: return "Cortex-A78C";
+        case 0xD44: return "Cortex-X1";
+        case 0xD4C: return "Cortex-X1C";
+        case 0xD47: return "Cortex-A710";
+        case 0xD48: return "Cortex-X2";
+        case 0xD4D: return "Cortex-A715";
+        case 0xD4E: return "Cortex-X3";
+        case 0xD81: return "Cortex-A720";
+        case 0xD82: return "Cortex-X4";
+        case 0xD87: return "Cortex-A725";
+        case 0xD85: return "Cortex-X925";
+        case 0xD8B: return "C1-Pro";
+        case 0xD8C: return "C1-Ultra";
+        case 0xD90: return "C1-Premium";
+        default:    return "ARM core";
+        }
+    case 0x51: /* Qualcomm */
+        switch (part_number) {
+        case 0x001: return "Oryon";
+        case 0x802: return "Kryo Gold (A75-class)";
+        case 0x804: return "Kryo Gold/Prime";
+        case 0x803: case 0x805: return "Kryo Silver";
+        default:    return "Kryo core";
+        }
+    case 0x53: /* Samsung */
+        return "Exynos Mongoose";
+    default:
+        return "CPU core";
     }
 }
 

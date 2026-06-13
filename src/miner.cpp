@@ -406,7 +406,7 @@ static void miner_check_bigcore_freq_cap(void)
 
     applog(LOG_WARNING,
            "CPU %d (%s) only %d/%d MHz under sustained load — big cores appear frequency-capped",
-           cpu, cpu_part_name(core->part_number),
+           cpu, cpu_part_name(core->implementer, core->part_number),
            cur / 1000, core->max_freq_khz / 1000);
 #ifdef __ANDROID__
     applog(LOG_WARNING,

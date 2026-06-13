@@ -145,13 +145,24 @@ static bool verus_use_fused_for_current_cpu(void)
 		case 0xD0B: /* Cortex-A76 — measured +5.9% */
 		case 0xD0D: /* Cortex-A77  */
 		case 0xD41: /* Cortex-A78  */
+		case 0xD4B: /* Cortex-A78C */
 		case 0xD44: /* Cortex-X1   */
+		case 0xD4C: /* Cortex-X1C  */
 		case 0xD47: /* Cortex-A710 */
 		case 0xD48: /* Cortex-X2   */
 		case 0xD4D: /* Cortex-A715 */
 		case 0xD4E: /* Cortex-X3   */
 		case 0xD81: /* Cortex-A720 */
 		case 0xD82: /* Cortex-X4 (0xD84 was a mislabel — that is Neoverse-V3) */
+		case 0xD87: /* Cortex-A725 */
+		case 0xD85: /* Cortex-X925 */
+		case 0xD8B: /* C1-Pro     */
+		case 0xD8C: /* C1-Ultra   */
+		case 0xD90: /* C1-Premium */
+		/* NOTE: newest ARM A75-descendants (A725/X925/C1) are added on the
+		 * design-lineage rationale, not yet per-core measured. Verus fused
+		 * self-test (VERUS_X2_SELFTEST=1) still guards correctness; if a tester
+		 * device shows a regression, drop its part here (cf. Mongoose M4). */
 			return true;
 		default:
 			return false;

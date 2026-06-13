@@ -36,6 +36,7 @@ void init_cpu_features(void);
 
 typedef struct {
     int cpu_id;
+    int implementer;    // MIDR implementer (0x41=ARM, 0x51=Qualcomm, 0x53=Samsung)
     int part_number;    // ARM part number (0xD05=A55, 0xD0B=A76)
     bool is_big;        // true for performance cores
     int max_freq_khz;
@@ -55,8 +56,8 @@ int get_cpu_for_thread(int thr_id);
 
 // Current operating frequency of a logical CPU in kHz (-1 if unreadable).
 int get_cpu_cur_freq_khz(int cpu_id);
-// Human-readable core name for a MIDR part number (e.g. "Cortex-X1").
-const char *cpu_part_name(int part_number);
+// Human-readable core name for a MIDR implementer + part number (e.g. "Cortex-X1").
+const char *cpu_part_name(int implementer, int part_number);
 
 // Hotplug support: Android parks/wakes cores at runtime, so startup topology
 // is a snapshot. online_changed() compares the kernel's online-CPU mask
