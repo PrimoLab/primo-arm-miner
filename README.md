@@ -25,7 +25,7 @@ of the last decade.
 - **Hotplug-resilient core pinning** — pins are chosen from the platform-allowed cpuset and reconciled continuously; threads adopt cores that Android parks/wakes at runtime instead of losing their pins
 - **ccminer-compatible control surface** — same CLI flags, JSON config format, and monitoring API
 - **Full stratum support** — standard (SHA256d/scrypt) and Verus/equihash variants, multi-pool failover
-- **Tiny footprint** — a single ~226 KB binary, three runtime libraries
+- **Tiny footprint** — a single ~228 KB binary, two runtime libraries (libcurl, libjansson)
 
 ## Performance
 
@@ -44,16 +44,30 @@ selected automatically per thread at runtime.
 
 Numbers vary with thermal headroom, governor, and per-SoC core mix.
 
-> **Android: use all CPU cores.** Android only grants an app every core while
-> it is the *focused* foreground app (`top-app` cpuset); once Termux is
-> backgrounded or the screen is off, the OS withholds one or more cores and the
-> miner logs `Platform allows this process only N of M CPUs`. With more threads
-> than allowed cores, the extra threads share a core (`only N core(s) available;
-> sharing CPU X with thread Y`) and show up at half rate. This is an OS policy
-> the miner cannot override. For full-core mining either keep the Termux app open
-> on screen, or launch the miner from an **SSH or `adb shell`** session — shell
-> sessions run in the all-core `top-app` cpuset even with the screen off. The
-> miner re-adopts a withheld core automatically (~20 s) once it returns.
+> **Android: getting full speed from the big cores.** Android throttles apps
+> that are not the *focused* foreground app, in two distinct ways:
+>
+> 1. **Withheld cores (cpuset).** Backgrounded or with the screen off, the OS
+>    removes one or more cores from the app's `top-app` cpuset; the miner logs
+>    `Platform allows this process only N of M CPUs`. With more threads than
+>    allowed cores the extras share a core (`only N core(s) available; sharing
+>    CPU X with thread Y`) and show up at half rate.
+> 2. **Capped frequency (uclamp).** Even when every core is granted, a
+>    non-foreground process can be held at a low CPU frequency, so a big core
+>    delivers little-core hashrate. The miner detects this and logs `CPU n
+>    (Cortex-Xn) only A/B MHz under sustained load — big cores appear
+>    frequency-capped`.
+>
+> Both are OS policy the miner cannot override, and both have the same fix: keep
+> the Termux app open on screen, or launch the miner from an **SSH or `adb shell`**
+> session — shell sessions run in the all-core, unthrottled `top-app` group even
+> with the screen off. A withheld core is re-adopted automatically (~20 s) once
+> it returns.
+>
+> **MediaTek SoCs** additionally hotplug the big-core cluster *offline* under
+> sustained thermal load (the kernel uses CPU hotplug as a cooling device), so
+> the online-core set flaps in the log. This is firmware thermal management and
+> needs root to disable — improve cooling or accept the reduced sustained rate.
 
 ## Building
 
@@ -89,6 +103,28 @@ CC=clang CXX=clang++ PRIMO_LINKER= make -j"$(nproc)"
 ```
 
 `./build.sh` uses the same overrides for the CMake path via `CC`, `CXX`, and `PRIMO_LINKER`. Leaving `PRIMO_LINKER` empty drops the `lld`-specific linker selection and hugetlbfs alignment flag.
+
+### Device build profiles
+
+`make` defaults to `PROFILE=rk3588`, which enables the Cortex-A76 hand-scheduled
+assembly in the Verus hot path (validated on RK3588) plus the Cortex-A53 erratum
+workaround. For **any other device** — other SBCs, phones, or a CI matrix
+producing per-model binaries — use the portable profile:
+
+```bash
+make PROFILE=generic
+```
+
+`generic` drops the A76-specific hand assembly and the A53 erratum workaround and
+lets the compiler schedule the portable intrinsics. It keeps the
+`-mtune=cortex-a53` codegen tuning, which benchmarks fastest across heterogeneous
+big.LITTLE SoCs. Per-core kernel selection (interleaved/fused CLHash, SoA scrypt)
+is chosen at runtime, so it is identical under either profile.
+
+> **Do not raise `-march` to `armv8.2-a`.** It implies the LSE atomics extension,
+> which the compiler then emits inline; on an ARMv8.0 core (common in budget and
+> older SoCs) those instructions fault with `SIGILL` the moment mining starts.
+> The build stays on `-march=armv8-a+crypto` so one binary runs on every ARMv8 core.
 
 ## License And Provenance
 
