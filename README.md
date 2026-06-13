@@ -44,6 +44,17 @@ selected automatically per thread at runtime.
 
 Numbers vary with thermal headroom, governor, and per-SoC core mix.
 
+> **Android: use all CPU cores.** Android only grants an app every core while
+> it is the *focused* foreground app (`top-app` cpuset); once Termux is
+> backgrounded or the screen is off, the OS withholds one or more cores and the
+> miner logs `Platform allows this process only N of M CPUs`. With more threads
+> than allowed cores, the extra threads share a core (`only N core(s) available;
+> sharing CPU X with thread Y`) and show up at half rate. This is an OS policy
+> the miner cannot override. For full-core mining either keep the Termux app open
+> on screen, or launch the miner from an **SSH or `adb shell`** session — shell
+> sessions run in the all-core `top-app` cpuset even with the screen off. The
+> miner re-adopts a withheld core automatically (~20 s) once it returns.
+
 ## Building
 
 ```bash

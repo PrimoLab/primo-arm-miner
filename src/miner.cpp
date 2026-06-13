@@ -648,21 +648,63 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
                    thread_id, opt_affinity_mask);
         }
     } else if (g_core_order_count > 0) {
-        int cpu_id = get_cpu_for_thread(thread_id);
+        /* Assign every thread its slot in a round-robin over the cores we are
+         * actually allowed to run on (big-first topology order). Crucially this
+         * is done uniformly — NOT "keep each thread's topology-native core and
+         * separately remap only the displaced ones". The split approach mixes
+         * two inconsistent mappings: a displaced thread (native core withheld)
+         * could be placed on a core a non-displaced thread already holds while a
+         * third allowed core sits idle (verified: -t7 with one core withheld
+         * doubled two threads on one core and left another core unused). The
+         * uniform round-robin gives a clean 1:1 whenever threads <= allowed
+         * cores, and otherwise doubles up only the highest thread indices. It
+         * matches compute_ideal_cpu_for_thread() and the repin tick, and is
+         * identical to the native mapping when nothing is withheld. Android
+         * foreground apps are routinely restricted to a core subset that varies
+         * by vendor and screen state, so this path is common there. */
+        int native_cpu = get_cpu_for_thread(thread_id);
+        int cpu_id = select_allowed_cpu_for_thread(thread_id, &allowed);
 
-        /* If the platform cpuset forbids the topology-preferred core, remap to
-         * this thread's slot among the cores we are actually allowed to use
-         * (still in big-first topology order) instead of attempting a pin that
-         * is guaranteed to fail with EINVAL. Seen on Android: foreground apps
-         * are often restricted to a subset of cores, and which subset varies
-         * by vendor and screen state. */
-        if (cpu_id >= 0 && cpu_id < CPU_SETSIZE && !CPU_ISSET(cpu_id, &allowed)) {
-            int remapped_cpu = select_allowed_cpu_for_thread(thread_id, &allowed);
+        int allowed_count = 0;
+        for (int i = 0; i < g_core_order_count; i++) {
+            int oc = g_core_order[i];
+            if (oc >= 0 && oc < CPU_SETSIZE && CPU_ISSET(oc, &allowed))
+                allowed_count++;
+        }
+
+        (void)native_cpu;
+        if (cpu_id < 0) {
             applog(LOG_WARNING,
-                   "Thread %d: CPU %d is outside the platform-allowed cpuset; %s",
-                   thread_id, cpu_id,
-                   remapped_cpu >= 0 ? "remapping within allowed cores" : "no allowed core found, leaving to scheduler");
-            cpu_id = remapped_cpu;
+                   "Thread %d: no platform-allowed core found; leaving to scheduler",
+                   thread_id);
+        } else if (allowed_count > 0 && thread_id >= allowed_count) {
+            /* Fewer allowed cores than threads: this thread necessarily shares a
+             * core with an earlier one. Name the collision so two half-rate
+             * threads in the display are self-explaining. */
+            applog(LOG_WARNING,
+                   "Thread %d: only %d core(s) available; sharing CPU %d with thread %d",
+                   thread_id, allowed_count, cpu_id, thread_id % allowed_count);
+        }
+
+        /* When the platform restricts us to fewer cores than the topology has,
+         * say so ONCE (not per-thread: the round-robin reshuffles threads across
+         * the allowed set, so an individual thread moving off its native core
+         * does not by itself mean that core was withheld). This covers Linux
+         * taskset/cgroup and Android cpuset alike. */
+        if (cpu_id >= 0 && allowed_count > 0 && allowed_count < g_core_order_count) {
+            static volatile int cpuset_hint_logged = 0;
+            if (__sync_lock_test_and_set(&cpuset_hint_logged, 1) == 0) {
+                applog(LOG_INFO,
+                       "Platform allows this process only %d of %d CPUs — total hashrate is capped accordingly",
+                       allowed_count, g_core_order_count);
+#ifdef __ANDROID__
+                applog(LOG_INFO,
+                       "Android withholds CPUs from apps that are not the focused foreground app; "
+                       "keep the app on screen (or launch via adb shell) to use all cores — "
+                       "withheld cores are re-adopted automatically within ~%d s of becoming available",
+                       k_repin_interval_sec);
+#endif
+            }
         }
 
         cpu_set_t cpuset;
