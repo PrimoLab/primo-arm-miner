@@ -333,6 +333,37 @@ static void detect_cpu_topology_now(void) {
         }
     }
 
+    // Secondary heuristic: catch an UNRECOGNISED big core that slipped past the
+    // MIDR allowlist while OTHER cores in the same SoC WERE recognised as big.
+    // In that partial-recognition case the primary fallback above never fires
+    // (g_num_big_cores != 0), so a prime core whose part number post-dates this
+    // build would be left misclassified as LITTLE and lose the x2 path — exactly
+    // how the Cortex-X4 (0xD82) and Kryo Gold (0x802) misses behaved. A core
+    // clocked at or above the SLOWEST recognised big core is big-class: LITTLE
+    // cores always clock below the big cluster in real big.LITTLE designs, so
+    // this never promotes an A55/A510/A520. Skipped if any big core has an
+    // unreadable max frequency (floor would be meaningless).
+    if (g_num_big_cores > 0 && g_num_big_cores < g_num_cpus) {
+        int min_big_freq = 0;
+        bool big_freqs_ok = true;
+        for (int i = 0; i < g_num_cpus; i++) {
+            if (!g_cpu_cores[i].is_big) continue;
+            int khz = g_cpu_cores[i].max_freq_khz;
+            if (khz <= 0) { big_freqs_ok = false; break; }
+            if (min_big_freq == 0 || khz < min_big_freq) min_big_freq = khz;
+        }
+        if (big_freqs_ok && min_big_freq > 0) {
+            for (int i = 0; i < g_num_cpus; i++) {
+                if (g_cpu_cores[i].is_big) continue;
+                if (g_cpu_cores[i].max_freq_khz >= min_big_freq) {
+                    g_cpu_cores[i].is_big = true;
+                    g_num_big_cores++;
+                    g_num_little_cores--;
+                }
+            }
+        }
+    }
+
     // Build sorted order: big cores first (highest freq first), then little cores
     g_core_order_count = 0;
 
