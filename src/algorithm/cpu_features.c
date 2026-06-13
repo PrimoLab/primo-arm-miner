@@ -89,13 +89,16 @@ static bool is_big_core(int implementer, int part_number) {
         default:
             return false;
         }
-    case 0x51: /* Qualcomm — Kryo part numbers */
+    case 0x51: /* Qualcomm — Kryo part numbers (per util-linux lscpu-arm).
+                * Only the Gold/Prime (big) tiers belong here. The Silver tiers
+                * 0x803 (Kryo 3XX) and 0x805 (Kryo 4XX/5XX) are A55-class LITTLE
+                * cores — listing them as big inverted cluster detection on
+                * SDM845 (Gold=0x802 was missing → A75 ran the x1 CLHash path). */
         switch (part_number) {
-        case 0x803: /* Kryo 485 Gold  (SD855) / 585 Silver (SD865) */
-        case 0x804: /* Kryo 485 Prime (SD855) / 585 Gold  (SD865) */
-        case 0x805: /* Kryo 585 Prime (SD865) */
+        case 0x802: /* Kryo 3XX Gold   (SDM845, Cortex-A75 class) */
+        case 0x804: /* Kryo 4XX/5XX Gold/Prime (SD855/865, A76/A77 class) */
             return true;
-        default:
+        default: /* 0x800/0x801 Falkor/Kryo-v2, 0x803/0x805 Silver → LITTLE */
             return false;
         }
     case 0x53: /* Samsung — Exynos M-series */
