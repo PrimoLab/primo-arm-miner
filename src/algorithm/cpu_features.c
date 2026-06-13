@@ -387,6 +387,54 @@ int get_cpu_for_thread(int thr_id) {
     return g_core_order[thr_id % g_core_order_count];
 }
 
+/* Current operating frequency of a logical CPU, in kHz, or -1 if unreadable.
+ * Used by the big-core frequency-cap diagnostic to tell a correctly-pinned but
+ * Android-throttled (uclamp/cpuset) core from a genuinely fast one. */
+int get_cpu_cur_freq_khz(int cpu_id) {
+#ifdef __linux__
+    char path[128];
+    snprintf(path, sizeof(path),
+             "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_cur_freq", cpu_id);
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return -1;
+    int khz = -1;
+    if (fscanf(f, "%d", &khz) != 1)
+        khz = -1;
+    fclose(f);
+    return khz;
+#else
+    (void)cpu_id;
+    return -1;
+#endif
+}
+
+/* Human-readable core name for log hints. Keyed on the MIDR part number alone;
+ * the ARM (0xDxx), Qualcomm Kryo (0x80x) and Samsung Mongoose (0x00x) ranges do
+ * not collide, so the implementer is not needed here. Unknown parts fall back to
+ * a generic label rather than a number. */
+const char *cpu_part_name(int part_number) {
+    switch (part_number) {
+    case 0xD05: return "Cortex-A55";
+    case 0xD0A: return "Cortex-A75";
+    case 0xD0B: return "Cortex-A76";
+    case 0xD0D: return "Cortex-A77";
+    case 0xD41: return "Cortex-A78";
+    case 0xD44: return "Cortex-X1";
+    case 0xD47: return "Cortex-A710";
+    case 0xD48: return "Cortex-X2";
+    case 0xD4D: return "Cortex-A715";
+    case 0xD4E: return "Cortex-X3";
+    case 0xD81: return "Cortex-A720";
+    case 0xD84: return "Cortex-X4";
+    case 0x802: return "Kryo Gold (A75-class)";
+    case 0x804: return "Kryo Gold/Prime";
+    case 0x001: case 0x002: case 0x003:
+    case 0x004: case 0x005: return "Exynos Mongoose";
+    default:    return "big core";
+    }
+}
+
 /*============================================================================
  * CPU Temperature
  *============================================================================*/

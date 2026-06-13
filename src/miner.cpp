@@ -368,6 +368,56 @@ static int compute_ideal_cpu_for_thread(int thread_id)
     return -1;
 }
 
+/* One-time big-core frequency-cap diagnostic. A thread can be pinned to a big
+ * core perfectly and still deliver LITTLE-core hashrate if Android has placed
+ * the process in a scheduler cgroup whose uclamp.max caps the FREQUENCY
+ * schedutil requests — so the prime core sits near its minimum clock under 100%
+ * load. We detect this directly: after sustained load (this runs from the repin
+ * tick, >= one interval in), the core a thread is running on should be near its
+ * max frequency; if a big core is far below, say so once with the launch-side
+ * remedy. Purely advisory: read-only, no effect on hashing. */
+static void miner_check_bigcore_freq_cap(void)
+{
+    static volatile int freq_cap_logged = 0;
+    if (freq_cap_logged)
+        return;
+
+    int cpu = sched_getcpu();
+    if (cpu < 0)
+        return;
+    cpu_core_info_t *core = find_cpu_core_info(cpu);
+    if (!core || !core->is_big || core->max_freq_khz <= 0)
+        return; /* not on a big core (or unknown) — let another thread audit */
+
+    int cur = get_cpu_cur_freq_khz(cpu);
+    if (cur <= 0)
+        return; /* cpufreq unreadable on this platform */
+
+    /* 70% of max: a genuinely loaded core settles near 100%; a uclamp/cpuset
+     * cap typically lands far lower (~40-55% of a ~2.8 GHz prime core). The gap
+     * is wide enough that 70% does not false-positive on governor ramp jitter. */
+    if ((long)cur * 100 >= (long)core->max_freq_khz * 70)
+        return;
+
+    /* Capped. Claim the one-shot just before logging so concurrent auditors do
+     * not double-log; a thread that found nothing above never consumes it. */
+    if (__sync_lock_test_and_set(&freq_cap_logged, 1) != 0)
+        return;
+
+    applog(LOG_WARNING,
+           "CPU %d (%s) only %d/%d MHz under sustained load — big cores appear frequency-capped",
+           cpu, cpu_part_name(core->part_number),
+           cur / 1000, core->max_freq_khz / 1000);
+#ifdef __ANDROID__
+    applog(LOG_WARNING,
+           "This is Android throttling a non-foreground app (uclamp.max / cpuset tier), not the miner. "
+           "Launch via 'adb shell' or keep the app focused on screen (top-app) for full big-core speed.");
+#else
+    applog(LOG_WARNING,
+           "Check the cpufreq governor and any external frequency cap (cpuset/uclamp/thermal) on this core.");
+#endif
+}
+
 void miner_thread_repin_tick(int thread_id)
 {
     if (thread_id < 0 || thread_id >= MAX_THREADS)
@@ -377,6 +427,10 @@ void miner_thread_repin_tick(int thread_id)
     if (now < g_thread_next_repin[thread_id])
         return;
     g_thread_next_repin[thread_id] = now + k_repin_interval_sec;
+
+    /* First interval has elapsed → frequencies have settled under load. Audit
+     * once for an Android big-core frequency cap before the pin reconciliation. */
+    miner_check_bigcore_freq_cap();
 
     pthread_mutex_lock(&g_topology_lock);
     if (cpu_topology_online_changed()) {

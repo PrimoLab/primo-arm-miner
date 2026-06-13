@@ -53,6 +53,11 @@ extern int g_core_order_count;
 void detect_cpu_topology(void);
 int get_cpu_for_thread(int thr_id);
 
+// Current operating frequency of a logical CPU in kHz (-1 if unreadable).
+int get_cpu_cur_freq_khz(int cpu_id);
+// Human-readable core name for a MIDR part number (e.g. "Cortex-X1").
+const char *cpu_part_name(int part_number);
+
 // Hotplug support: Android parks/wakes cores at runtime, so startup topology
 // is a snapshot. online_changed() compares the kernel's online-CPU mask
 // against the last detection; refresh() re-scans. Callers must serialize
