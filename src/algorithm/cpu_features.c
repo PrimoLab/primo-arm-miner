@@ -84,7 +84,12 @@ static bool is_big_core(int implementer, int part_number) {
         case 0xD4D: /* Cortex-A715 */
         case 0xD4E: /* Cortex-X3   */
         case 0xD81: /* Cortex-A720 */
-        case 0xD84: /* Cortex-X4   */
+        case 0xD82: /* Cortex-X4 — was previously (wrongly) listed as 0xD84.
+                     * 0xD84 is Neoverse-V3 (server, never in phones); the real
+                     * Cortex-X4 prime in SD8Gen3 / Dimensity 9300 / Exynos 2400
+                     * / Tensor G4 is 0xD82, so it was being misdetected as
+                     * LITTLE and ran the x1 CLHash path. Per util-linux
+                     * lscpu-arm + Linux cputype.h. */
             return true;
         default:
             return false;

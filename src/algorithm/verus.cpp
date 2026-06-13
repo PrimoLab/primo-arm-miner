@@ -151,7 +151,7 @@ static bool verus_use_fused_for_current_cpu(void)
 		case 0xD4D: /* Cortex-A715 */
 		case 0xD4E: /* Cortex-X3   */
 		case 0xD81: /* Cortex-A720 */
-		case 0xD84: /* Cortex-X4   */
+		case 0xD82: /* Cortex-X4 (0xD84 was a mislabel — that is Neoverse-V3) */
 			return true;
 		default:
 			return false;
