@@ -4,28 +4,29 @@
 #include <stdint.h>
 #include <arm_neon.h>
 
-#ifndef USE_A76_ASM_AES_MIX2
-#define USE_A76_ASM_AES_MIX2 1
+// Hand-tuned CLHash asm helpers. NOT A76-specific despite the historical name
+// (they're standard ARMv8 with bit-exact C fallbacks, net-positive on A76,
+// Mongoose M4 and A55). Default on; clhash_native_noasm.c sets them to 0 to
+// build the portable C variant. Selected per thread at runtime — see the
+// dispatch contract further down and verus_use_asm_for_current_cpu().
+#ifndef CLHASH_ASM_AES_MIX2
+#define CLHASH_ASM_AES_MIX2 1
 #endif
 
-#ifndef USE_A76_ASM_CASE18_CLMUL
-#define USE_A76_ASM_CASE18_CLMUL 1
+#ifndef CLHASH_ASM_CASE18_CLMUL
+#define CLHASH_ASM_CASE18_CLMUL 1
 #endif
 
-#ifndef USE_A76_CASE18_CLMUL_MEM_BARRIER
-#define USE_A76_CASE18_CLMUL_MEM_BARRIER 0
+#ifndef CLHASH_ASM_XOR_LOW32
+#define CLHASH_ASM_XOR_LOW32 1
 #endif
 
-#ifndef USE_A76_ASM_XOR_LOW32
-#define USE_A76_ASM_XOR_LOW32 1
+#ifndef CLHASH_ASM_CASE18_FIXEDCOUNT
+#define CLHASH_ASM_CASE18_FIXEDCOUNT 1
 #endif
 
-#ifndef USE_A76_CASE18_FIXEDCOUNT
-#define USE_A76_CASE18_FIXEDCOUNT 1
-#endif
-
-#ifndef USE_A76_CASE18_MASK_PTRS
-#define USE_A76_CASE18_MASK_PTRS 1
+#ifndef CLHASH_ASM_CASE18_MASK_PTRS
+#define CLHASH_ASM_CASE18_MASK_PTRS 1
 #endif
 
 #ifdef __cplusplus
@@ -102,7 +103,7 @@ static inline uint64_t precompReduction64_native(uint64x2_t A) {
 // Runtime-selectable CLHash variants.
 //
 // The hot CLHash loop is compiled twice into distinct symbols: a "_asm" variant
-// with the wide-out-of-order-big-core hand-asm helpers (the USE_A76_* blocks
+// with the wide-out-of-order-big-core hand-asm helpers (the CLHASH_ASM_* blocks
 // above) and a portable "_noasm" C variant. verus.cpp picks per thread by core
 // type (big core -> _asm, in-order/unknown -> _noasm) so a single binary is
 // optimal on every core — no rk3588-vs-generic build split. The two variants
@@ -114,7 +115,7 @@ static inline uint64_t precompReduction64_native(uint64x2_t A) {
 //   x2f = verusclhash_port2_2_x2f_native   x2 with one fused 64-way dispatch
 //
 // clhash_native.c defines whichever variant CLHASH_SYM_SUFFIX selects (default
-// _asm); clhash_native_noasm.c sets the suffix to _noasm + the USE_A76_*=0
+// _asm); clhash_native_noasm.c sets the suffix to _noasm + the CLHASH_ASM_*=0
 // macros and #includes clhash_native.c.
 #define CLHASH_CAT2_(a, b) a##b
 #define CLHASH_CAT_(a, b) CLHASH_CAT2_(a, b)
@@ -191,12 +192,12 @@ static inline void mix2_emu_simple_native(uint64x2_t *temp1, uint64x2_t *temp2) 
 // Returns MIX2(temp1, temp2) lane-wise XOR (i.e., zip1 ^ zip2) directly.
 // This matches the case 0x14 usage pattern (acc ^= onekey ^ temp2) while
 // avoiding an extra move/combine sequence in the hot loop.
-static inline uint64x2_t aes_rounds_4_mix2_xor_native_a76(uint64x2_t temp1, uint64x2_t temp2,
+static inline uint64x2_t aes_rounds_4_mix2_xor_native_asm(uint64x2_t temp1, uint64x2_t temp2,
                                                            const uint8x16_t *rk)
     __attribute__((always_inline));
-static inline uint64x2_t aes_rounds_4_mix2_xor_native_a76(uint64x2_t temp1, uint64x2_t temp2,
+static inline uint64x2_t aes_rounds_4_mix2_xor_native_asm(uint64x2_t temp1, uint64x2_t temp2,
                                                            const uint8x16_t *rk) {
-#if USE_A76_ASM_AES_MIX2 && defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))
+#if CLHASH_ASM_AES_MIX2 && defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))
     uint8x16_t s0 = vreinterpretq_u8_u64(temp1);
     uint8x16_t s1 = vreinterpretq_u8_u64(temp2);
     const uint8x16_t z = vdupq_n_u8(0);
@@ -235,10 +236,10 @@ static inline uint64x2_t aes_rounds_4_mix2_xor_native_a76(uint64x2_t temp1, uint
 
 // XOR a 32-bit scalar into low 32 bits of acc with minimal lane traffic.
 // Bit-for-bit equivalent to: acc ^= cvtsi32_si128(modulo_result)
-static inline uint64x2_t xor_low32_lane_native_a76(uint64x2_t acc, uint32_t x)
+static inline uint64x2_t xor_low32_lane_native_asm(uint64x2_t acc, uint32_t x)
     __attribute__((always_inline));
-static inline uint64x2_t xor_low32_lane_native_a76(uint64x2_t acc, uint32_t x) {
-#if USE_A76_ASM_XOR_LOW32 && defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))
+static inline uint64x2_t xor_low32_lane_native_asm(uint64x2_t acc, uint32_t x) {
+#if CLHASH_ASM_XOR_LOW32 && defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))
     uint32_t t;
     asm volatile(
         "umov %w[t], %[acc].s[0]\n\t"
@@ -259,27 +260,16 @@ static inline uint64x2_t xor_low32_lane_native_a76(uint64x2_t acc, uint32_t x) {
 //   onekey = clmul((onekey ^ temp), (onekey ^ temp))
 //   acc ^= mulhrs(acc, onekey)
 // Returns updated onekey and updates *acc in place.
-static inline uint64x2_t case18_clmul_mulhrs_xor_native_a76(uint64x2_t *acc,
+static inline uint64x2_t case18_clmul_mulhrs_xor_native_asm(uint64x2_t *acc,
                                                              uint64x2_t onekey,
                                                              uint64x2_t temp)
     __attribute__((always_inline));
-static inline uint64x2_t case18_clmul_mulhrs_xor_native_a76(uint64x2_t *acc,
+static inline uint64x2_t case18_clmul_mulhrs_xor_native_asm(uint64x2_t *acc,
                                                              uint64x2_t onekey,
                                                              uint64x2_t temp) {
-#if USE_A76_ASM_CASE18_CLMUL && defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))
+#if CLHASH_ASM_CASE18_CLMUL && defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))
     uint64x2_t a = *acc;
     uint64x2_t t;
-#if USE_A76_CASE18_CLMUL_MEM_BARRIER
-    asm volatile(
-        "eor %[k].16b, %[k].16b, %[tmp].16b\n\t"
-        "dup %[t].2d, %[k].d[0]\n\t"
-        "pmull2 %[k].1q, %[k].2d, %[t].2d\n\t"
-        "sqrdmulh %[t].8h, %[a].8h, %[k].8h\n\t"
-        "eor %[a].16b, %[a].16b, %[t].16b\n\t"
-        : [a] "+w"(a), [k] "+w"(onekey), [t] "=&w"(t)
-        : [tmp] "w"(temp)
-        : "memory");
-#else
     asm volatile(
         "eor %[k].16b, %[k].16b, %[tmp].16b\n\t"
         "dup %[t].2d, %[k].d[0]\n\t"
@@ -288,7 +278,6 @@ static inline uint64x2_t case18_clmul_mulhrs_xor_native_a76(uint64x2_t *acc,
         "eor %[a].16b, %[a].16b, %[t].16b\n\t"
         : [a] "+w"(a), [k] "+w"(onekey), [t] "=&w"(t)
         : [tmp] "w"(temp));
-#endif
     *acc = a;
     return onekey;
 #else
@@ -302,14 +291,14 @@ static inline uint64x2_t case18_clmul_mulhrs_xor_native_a76(uint64x2_t *acc,
 
 // Inner loop helper for case 0x18 (branch/control + compute path).
 // Updates *acc and returns the final onekey for post-loop stores.
-static inline uint64x2_t case18_inner_loop_native_a76(uint64x2_t *acc,
+static inline uint64x2_t case18_inner_loop_native_asm(uint64x2_t *acc,
                                                        uint64x2_t *rc,
                                                        int64_t rounds,
                                                        uint64_t selector,
                                                        const uint64x2_t *pbuf,
                                                        const uint64x2_t *pbsf)
     __attribute__((always_inline));
-static inline uint64x2_t case18_inner_loop_native_a76(uint64x2_t *acc,
+static inline uint64x2_t case18_inner_loop_native_asm(uint64x2_t *acc,
                                                        uint64x2_t *rc,
                                                        int64_t rounds,
                                                        uint64_t selector,
@@ -317,8 +306,8 @@ static inline uint64x2_t case18_inner_loop_native_a76(uint64x2_t *acc,
                                                        const uint64x2_t *pbsf) {
     uint64x2_t onekey = vdupq_n_u64(0);
 
-#if USE_A76_CASE18_FIXEDCOUNT
-#if USE_A76_CASE18_MASK_PTRS
+#if CLHASH_ASM_CASE18_FIXEDCOUNT
+#if CLHASH_ASM_CASE18_MASK_PTRS
     const int32_t divisor = (uint32_t)selector;
     uint64_t mask = (0x10000000ULL << rounds);
     const uint64x2_t * __restrict sel_div = (rounds & 1) ? pbuf : pbsf;
@@ -333,9 +322,9 @@ static inline uint64x2_t case18_inner_loop_native_a76(uint64x2_t *acc,
                 onekey = veorq_u64(onekey, temp2);
                 const int64_t dividend2 = vgetq_lane_s64(vreinterpretq_s64_u64(onekey), 0);
                 const int32_t modulo_result = (int32_t)(dividend2 % divisor);
-                *acc = xor_low32_lane_native_a76(*acc, (uint32_t)modulo_result);
+                *acc = xor_low32_lane_native_asm(*acc, (uint32_t)modulo_result);
             } else {
-                onekey = case18_clmul_mulhrs_xor_native_a76(acc, onekey, *sel_cl);
+                onekey = case18_clmul_mulhrs_xor_native_asm(acc, onekey, *sel_cl);
             }
             rounds--;
             mask >>= 1;
@@ -358,9 +347,9 @@ static inline uint64x2_t case18_inner_loop_native_a76(uint64x2_t *acc,
                 const int32_t divisor = (uint32_t)selector;
                 const int64_t dividend2 = vgetq_lane_s64(vreinterpretq_s64_u64(onekey), 0);
                 const int32_t modulo_result = (int32_t)(dividend2 % divisor);
-                *acc = xor_low32_lane_native_a76(*acc, (uint32_t)modulo_result);
+                *acc = xor_low32_lane_native_asm(*acc, (uint32_t)modulo_result);
             } else {
-                onekey = case18_clmul_mulhrs_xor_native_a76(acc, onekey, *sel_cl);
+                onekey = case18_clmul_mulhrs_xor_native_asm(acc, onekey, *sel_cl);
             }
             rounds--;
         }
@@ -378,9 +367,9 @@ static inline uint64x2_t case18_inner_loop_native_a76(uint64x2_t *acc,
                 const int32_t divisor = (uint32_t)selector;
                 const int64_t dividend2 = vgetq_lane_s64(vreinterpretq_s64_u64(onekey), 0);
                 const int32_t modulo_result = (int32_t)(dividend2 % divisor);
-                *acc = xor_low32_lane_native_a76(*acc, (uint32_t)modulo_result);
+                *acc = xor_low32_lane_native_asm(*acc, (uint32_t)modulo_result);
         } else {
-            onekey = case18_clmul_mulhrs_xor_native_a76(acc, onekey, *sel_cl);
+            onekey = case18_clmul_mulhrs_xor_native_asm(acc, onekey, *sel_cl);
         }
     }
 #endif

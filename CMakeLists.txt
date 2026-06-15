@@ -9,14 +9,14 @@ set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 set(PRIMO_LINKER "lld" CACHE STRING "Linker driver name for -fuse-ld=<name>; set empty to use the compiler default")
 
-# Device profile selector — mirrors the Makefile's PROFILE variable:
-#   rk3588  (default) — validated on RK3588 (A55+A76): A76 hand-scheduled asm
-#                       in the Verus hot path plus the A53 errata workaround.
-#   generic           — portable build for other cores (phones, other SBCs).
-#                       Disables the A76 hand-asm / fixed-unroll paths and the
-#                       A53 errata workaround, but keeps the a53 tune (bench
-#                       data: it generalises better than -mtune=native):
+# Device profile selector — mirrors the Makefile's PROFILE variable. The CLHash
+# hand-asm is now runtime-dispatched (both variants compiled in, selected per
+# core — see clhash_native.h), so the profile no longer gates it; it only
+# toggles the Cortex-A53 erratum workaround:
+#   rk3588  (default) — adds -mfix-cortex-a53-835769 (harmless NOP elsewhere).
+#   generic           — drops it (no real A53 core):
 #                         cmake -DPRIMO_PROFILE=generic ..
+# Both produce the same runtime-dispatched binary otherwise.
 set(PRIMO_PROFILE "rk3588" CACHE STRING "Device profile: rk3588 or generic")
 
 # Match the promoted ccminer baseline profile on this device.

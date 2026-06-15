@@ -4,8 +4,8 @@
 #include <string.h>
 
 // This translation unit is compiled twice: as-is it builds the "_asm" variant
-// (USE_A76_* default on); clhash_native_noasm.c #includes it with the suffix
-// set to _noasm and the USE_A76_* macros forced to 0. See clhash_native.h.
+// (CLHASH_ASM_* default on); clhash_native_noasm.c #includes it with the suffix
+// set to _noasm and the CLHASH_ASM_* macros forced to 0. See clhash_native.h.
 #ifndef CLHASH_SYM_SUFFIX
 #define CLHASH_SYM_SUFFIX _asm
 #endif
@@ -193,7 +193,7 @@ static inline uint64x2_t verus_clhash_case(uint64_t switch_val, uint64x2_t acc,
                 const int64_t dividend = vgetq_lane_s64(vreinterpretq_s64_u64(acc), 0);
                 // CRITICAL: Result can be negative! Must use SIGNED int32_t, not unsigned uint32_t!
                 const int32_t modulo_result = (int32_t)(dividend % divisor);
-                acc = xor_low32_lane_native_a76(acc, (uint32_t)modulo_result);
+                acc = xor_low32_lane_native_asm(acc, (uint32_t)modulo_result);
                 
                 const int16x8_t tempa1 = vqrdmulhq_s16(vreinterpretq_s16_u64(acc),
                                                        vreinterpretq_s16_u64(temp1));
@@ -274,7 +274,7 @@ static inline uint64x2_t verus_clhash_case(uint64_t switch_val, uint64x2_t acc,
                             const uint64_t round_block = aesround++;
 
                             const uint8x16_t *rk = ((const uint8x16_t*)rc) + (round_block << 2);
-                            const uint64x2_t mixxor = aes_rounds_4_mix2_xor_native_a76(onekey, temp2, rk);
+                            const uint64x2_t mixxor = aes_rounds_4_mix2_xor_native_asm(onekey, temp2, rk);
                             acc = veorq_u64(acc, mixxor);
                         }
                         rounds--;
@@ -299,7 +299,7 @@ static inline uint64x2_t verus_clhash_case(uint64_t switch_val, uint64x2_t acc,
                 // Must match portable exactly: unrolled 8-iteration loop with conditional division/clmul paths
                 const int64_t rounds = (int64_t)(selector >> 61);
                 uint64x2_t *rc = prand;
-                const uint64x2_t onekey = case18_inner_loop_native_a76(&acc, rc, rounds, selector, pbuf, pbsf);
+                const uint64x2_t onekey = case18_inner_loop_native_asm(&acc, rc, rounds, selector, pbuf, pbsf);
 
                 // Final operations matching portable EXACTLY
                 // Portable lines 1000-1004:

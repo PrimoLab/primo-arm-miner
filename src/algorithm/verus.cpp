@@ -31,10 +31,6 @@
 #define USE_DIRECT_NATIVE_CALL 1
 #endif
 
-#ifndef USE_A76_FIXKEY_UNROLL
-#define USE_A76_FIXKEY_UNROLL 1
-#endif
-
 #include "miner.h"
 
 extern "C" {
@@ -234,20 +230,15 @@ static VERUS_ALWAYS_INLINE void restore_cl_key_slots(uint16_t * __restrict mutat
 	uint16_t * __restrict mirrored_slots, verus_vec128_t * __restrict key_buffer,
 	verus_vec128_t * __restrict preserved_values, verus_vec128_t * __restrict preserved_values_mirror)
 {
-#if USE_A76_FIXKEY_UNROLL
+	// Full unroll + hoisting both slot indices into locals before the stores:
+	// measured part of the big-core asm win, neutral elsewhere, so unconditional.
 #pragma clang loop unroll(full)
-#endif
 	for (uint64_t i = 32; i--; )
 	{
-#if USE_A76_FIXKEY_UNROLL
 		const uint16_t slot = mutated_slots[i];
 		const uint16_t mirror_slot = mirrored_slots[i];
 		key_buffer[slot] = preserved_values[i];
 		key_buffer[mirror_slot] = preserved_values_mirror[i];
-#else
-		key_buffer[mutated_slots[i]] = preserved_values[i];
-		key_buffer[mirrored_slots[i]] = preserved_values_mirror[i];
-#endif
 	}
 }
 

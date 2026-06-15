@@ -13,15 +13,16 @@ endif
 CC_VERSION_LINE := $(shell $(CC) --version 2>/dev/null | head -1 | tr '[:upper:]' '[:lower:]')
 CC_IS_CLANG := $(findstring clang,$(CC_VERSION_LINE))
 
-# Device profile selector:
-#   rk3588  (default) — validated on RK3588 (A55+A76): A76 hand-scheduled asm
-#                       in the Verus hot path plus A53-style codegen tuning.
-#   generic           — portable build for other cores (phones, other SBCs).
-#                       Disables the A76 hand-asm / fixed-unroll paths and the
-#                       A53 errata workaround, but keeps the a53 tune (bench
-#                       data: it generalises better than -mtune=native). Lets
-#                       the compiler schedule the portable intrinsics:
+# Device profile selector. The CLHash hand-asm is now runtime-dispatched
+# (compiled into both _asm/_noasm variants and selected per core — see
+# clhash_native.h), so the profile NO LONGER gates the asm. It only toggles the
+# Cortex-A53 erratum workaround:
+#   rk3588  (default) — adds -mfix-cortex-a53-835769 (a harmless NOP elsewhere).
+#   generic           — drops it (phones/SBCs with no real A53 core):
 #                         make PROFILE=generic
+# Both produce the same runtime-dispatched binary otherwise; -mtune=cortex-a53
+# is kept in both (it generalises better than -mtune=native even on the A76).
+# PRIMO_A53_ERRATA=0/1 toggles the erratum independently of PROFILE.
 PROFILE ?= rk3588
 
 COMMON_CPPFLAGS = -flax-vector-conversions -I./include -I./src
@@ -104,7 +105,7 @@ LDFLAGS += $(PRIMO_LDFLAGS)
 LDLIBS += $(PRIMO_LDLIBS)
 
 # Optional per-file override for CLHash experiments, e.g.
-# make CLHASH_EXTRA_FLAGS="-DUSE_A76_CASE18_MASK_PTRS=0"
+# make CLHASH_EXTRA_FLAGS="-DCLHASH_ASM_CASE18_MASK_PTRS=0"
 CLHASH_EXTRA_FLAGS ?=
 
 SOURCES_C = \
@@ -170,7 +171,7 @@ src/algorithm/clhash_native.o: src/algorithm/clhash_native.c
 	$(CC) $(CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -fno-unroll-loops $(CLHASH_EXTRA_FLAGS) -c $< -o $@
 
 # No-asm variant of the same hot loop (wrapper #includes clhash_native.c with
-# CLHASH_SYM_SUFFIX=_noasm + USE_A76_*=0). Same -fno-unroll-loops as above.
+# CLHASH_SYM_SUFFIX=_noasm + CLHASH_ASM_*=0). Same -fno-unroll-loops as above.
 src/algorithm/clhash_native_noasm.o: src/algorithm/clhash_native_noasm.c src/algorithm/clhash_native.c
 	@echo "Compiling $< (no unroll-loops, no-asm variant)..."
 	$(CC) $(CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -fno-unroll-loops $(CLHASH_EXTRA_FLAGS) -c $< -o $@
