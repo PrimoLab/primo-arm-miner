@@ -31,6 +31,15 @@ COMMON_OPT_FLAGS += -D_REENTRANT -DUSE_DIRECT_NATIVE_CALL=1
 COMMON_OPT_FLAGS += -falign-functions=16 -fomit-frame-pointer -fpic
 COMMON_OPT_FLAGS += -pthread -flto -fno-stack-protector -Wall
 
+# ISA and scheduling baseline. These default to the validated winner
+# (-march=armv8-a+crypto, -mtune=cortex-a53 — see notes below) but are exposed
+# as overridable knobs so CI can A/B build flags per device WITHOUT editing the
+# Makefile. `?=` means an env var or a `make PRIMO_MARCH=...` arg wins; the
+# default is unchanged when nothing is passed. Do NOT default-bump these to
+# armv8.2-a (LSE atomics SIGILL on ARMv8.0 cores — see the Termux build).
+PRIMO_MARCH ?= armv8-a+crypto
+PRIMO_MTUNE ?= cortex-a53
+
 ifeq ($(PROFILE),generic)
 # Portable intrinsics for unknown / non-A76 cores. The A76 hand-scheduled asm
 # is frozen to one microarch and is only a ~2-4% win even where it helps, so it
@@ -38,22 +47,31 @@ ifeq ($(PROFILE),generic)
 # kept on purpose: bench data shows conservative -mtune=cortex-a53 generalises
 # better than -mtune=native even on the A76, so it is the safest default across
 # heterogeneous cores. The a53 errata workaround is dropped (not an A53).
-BASE_ARCH_FLAGS = -march=armv8-a+crypto -mtune=cortex-a53
+BASE_ARCH_FLAGS = -march=$(PRIMO_MARCH) -mtune=$(PRIMO_MTUNE)
 COMMON_OPT_FLAGS += -DUSE_A76_ASM_AES_MIX2=0 -DUSE_A76_ASM_CASE18_CLMUL=0
 COMMON_OPT_FLAGS += -DUSE_A76_ASM_XOR_LOW32=0 -DUSE_A76_CASE18_FIXEDCOUNT=0
 COMMON_OPT_FLAGS += -DUSE_A76_CASE18_MASK_PTRS=0 -DUSE_A76_FIXKEY_UNROLL=0
 else
 # Match the promoted ccminer baseline profile on this device.
 # The validated winner tuned for A55/A53-style codegen, not the earlier A76 profile.
-BASE_ARCH_FLAGS = -march=armv8-a+crypto -mtune=cortex-a53
+BASE_ARCH_FLAGS = -march=$(PRIMO_MARCH) -mtune=$(PRIMO_MTUNE)
 COMMON_OPT_FLAGS += -mfix-cortex-a53-835769
 endif
 
-PRIMO_CPPFLAGS = $(COMMON_CPPFLAGS)
-PRIMO_CFLAGS = $(BASE_ARCH_FLAGS) $(COMMON_OPT_FLAGS) -std=gnu11
-PRIMO_CXXFLAGS = $(BASE_ARCH_FLAGS) $(COMMON_OPT_FLAGS) -funroll-loops -std=c++14
-PRIMO_LDFLAGS = -flto -pthread
+# Last-resort full replacement of the arch/tune flags for a one-off CI probe.
+ifneq ($(strip $(PRIMO_ARCH_FLAGS_OVERRIDE)),)
+BASE_ARCH_FLAGS = $(PRIMO_ARCH_FLAGS_OVERRIDE)
+endif
+
+# Additive per-build extra flags (empty by default — append, never replace).
+PRIMO_CPPFLAGS = $(COMMON_CPPFLAGS) $(PRIMO_EXTRA_CPPFLAGS)
+PRIMO_CFLAGS = $(BASE_ARCH_FLAGS) $(COMMON_OPT_FLAGS) -std=gnu11 $(PRIMO_EXTRA_CFLAGS)
+PRIMO_CXXFLAGS = $(BASE_ARCH_FLAGS) $(COMMON_OPT_FLAGS) -funroll-loops -std=c++14 $(PRIMO_EXTRA_CXXFLAGS)
+PRIMO_LDFLAGS = -flto -pthread $(PRIMO_EXTRA_LDFLAGS)
 PRIMO_LDLIBS = -lcurl -ljansson -lm
+ifneq ($(strip $(PRIMO_LDLIBS_OVERRIDE)),)
+PRIMO_LDLIBS = $(PRIMO_LDLIBS_OVERRIDE)
+endif
 
 ifneq ($(CC_IS_CLANG),)
 PRIMO_CFLAGS += -mllvm -enable-loop-distribute
