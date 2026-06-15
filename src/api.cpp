@@ -34,6 +34,12 @@
 #define API_CLIENT_INITIAL_READ_TIMEOUT_MS 1000
 #define API_CLIENT_IDLE_READ_TIMEOUT_MS 200
 #define API_CLIENT_WRITE_TIMEOUT_MS 1000
+/* When the listen socket enters a persistent error state (e.g. the --api-bind
+ * interface disappears because wifi was turned off), poll() reports it "ready"
+ * via POLLERR on every iteration and accept() fails immediately. Back off and
+ * rate-limit the log so the accept loop can't flood the screen. */
+#define API_ACCEPT_ERR_BACKOFF_MS 1000
+#define API_ACCEPT_ERR_LOG_SECS 60
 
 struct api_history_entry {
     int thread_id;
@@ -747,6 +753,8 @@ static void *api_thread_main(void *userdata)
     else
         applog(LOG_INFO, "API open to the network in read-only mode on %s:%d", api_bind_address(), g_api_bound_port);
 
+    time_t last_accept_err_log = 0;
+
     while (!miner_should_abort() && !api_shutdown_requested()) {
         int ready;
 
@@ -773,7 +781,22 @@ static void *api_thread_main(void *userdata)
                     break;
                 if (errno == EINTR)
                     continue;
-                applog(LOG_WARNING, "API accept failed: %s", strerror(errno));
+                /* Persistent listen-socket error — typically the bound
+                 * interface vanished (wifi off while --api-bind points at a
+                 * LAN IP). poll() keeps reporting the fd ready via POLLERR, so
+                 * without this backoff the loop spins at full speed and floods
+                 * the log until the user kills the miner. Rate-limit the
+                 * message and sleep so the listener idles quietly; mining is
+                 * unaffected (the API resumes on its own if the socket
+                 * recovers, otherwise after a restart). */
+                time_t now = time(NULL);
+                if (now - last_accept_err_log >= API_ACCEPT_ERR_LOG_SECS) {
+                    applog(LOG_WARNING,
+                           "API accept failed: %s — backing off (mining continues)",
+                           strerror(errno));
+                    last_accept_err_log = now;
+                }
+                poll(NULL, 0, API_ACCEPT_ERR_BACKOFF_MS);
                 break;
             }
 
