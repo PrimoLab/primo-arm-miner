@@ -4,7 +4,6 @@
 set -euo pipefail
 
 BINARY="primo-arm-miner"
-MAKEFILE_ORIG="Makefile.termux-orig"
 
 die()  { echo "Error: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
@@ -119,57 +118,46 @@ CLANG_MAJOR=$("$CLANG_BIN" --version 2>/dev/null \
     || echo 0)
 info "Detected clang $CLANG_MAJOR"
 
-# ── Patch Makefile for Android/Termux ────────────────────────────────────────
+# ── Android/Termux build knobs (no Makefile patching) ────────────────────────
 #
-# Two things need fixing vs the default Makefile:
+# The Makefile is parameterised, so the Android adjustments are passed as make
+# variables instead of sed-rewriting the repo Makefile (which used to dirty the
+# worktree and leak profiles between syncs). The repo Makefile stays untouched.
 #
-#   1. -Wl,-hugetlbfs-align  — Linux hugetlbfs page-alignment hint; the
-#      Android kernel does not support hugetlbfs so the linker rejects it.
+#   PRIMO_HUGETLBFS=0   drops -Wl,-hugetlbfs-align — the Android kernel has no
+#                       hugetlbfs and lld rejects the flag.
+#   PRIMO_A53_ERRATA=0  drops -mfix-cortex-a53-835769 — phone CPUs never had the
+#                       A53 erratum, so skip the NOP overhead. The default
+#                       rk3588 PROFILE is kept on purpose (NOT generic): its A76
+#                       asm helpers measurably help even on the Mongoose M4.
+#   PRIMO_EXTRA_C{,XX}FLAGS  append -Ofast (over -O3) and -falign-functions=32
+#                       (over 16). Both are washes vs -O3/16 on Android in A/B
+#                       tests, but kept so this build is byte-equivalent to the
+#                       previous sed-patched one. align=64 wastes I-cache; 32
+#                       suits the -fno-unroll-loops haraka/clhash loops.
 #
-#   2. -ffinite-loops         — Needs clang 13+. Termux ships 17+ today but
-#      guard it anyway.
-#
-# The Makefile's CC/CXX are overridden on the make command line (it uses
-# $(origin) guards), so no patching is needed for the compiler name.
-# PRIMO_LINKER=lld is passed so the Makefile doesn't hardcode a linker path.
+# Do NOT bump -march to armv8.2-a: v8.2 implies v8.1 LSE, so clang hardcodes
+# ldadd/cas/swp atomics that SIGILL on ARMv8.0 cores the moment mining threads
+# start (field-confirmed 2026-06-11). v8.0 emits outline atomics that
+# runtime-dispatch to LSE where present; the hot path (PMULL/AES/SHA2) is fully
+# covered by +crypto. CC/CXX/PRIMO_LINKER use the Makefile's $(origin) guards.
 
-# Save the original once (idempotent — subsequent runs regenerate from it)
-[ -f "$MAKEFILE_ORIG" ] || cp Makefile "$MAKEFILE_ORIG"
+[ "$CLANG_MAJOR" -ge 13 ] || die "clang 13+ required (need -ffinite-loops); detected clang $CLANG_MAJOR"
 
-info "Patching Makefile for Termux..."
-sed \
-    -e '/-Wl,-hugetlbfs-align/d' \
-    -e 's/-O3/-Ofast/' \
-    -e 's/-falign-functions=16/-falign-functions=32/' \
-    -e 's/-mfix-cortex-a53-835769[[:space:]]*//' \
-    "$MAKEFILE_ORIG" > Makefile
-# Changes vs desktop Makefile:
-#   -march=armv8-a+crypto kept (do NOT bump to armv8.2-a): v8.2 implies v8.1
-#      LSE, so clang hardcodes ldadd/cas/swp atomics that SIGILL on ARMv8.0
-#      cores the moment mining threads start (-h still works — confirmed in
-#      the field 2026-06-11). At v8.0 clang emits outline atomics, which
-#      runtime-dispatch to LSE where available. The hot path (PMULL/AES/SHA2)
-#      is fully covered by +crypto; v8.2 adds nothing the miner uses.
-#   -mtune=cortex-a53 kept   : empirically faster on both RK3588 and Exynos 9820
-#      (Samsung Mongoose M4 has no clang scheduling model; a53 generates shorter
-#      dependency chains that fit PMULL/AES latency chains better than a76)
-#   -falign-functions=32     : 64 wastes I-cache; 32 is better for tight
-#      haraka/clhash loops compiled with -fno-unroll-loops
-#   -mfix-cortex-a53-835769 removed  : errata NOP overhead — phone CPUs never had it
-
-if [ "$CLANG_MAJOR" -lt 13 ]; then
-    info "clang $CLANG_MAJOR: removing unsupported -ffinite-loops"
-    sed -i 's/-ffinite-loops[[:space:]]*//' Makefile
-fi
-
+TERMUX_EXTRA_OPT="-Ofast -falign-functions=32"
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
 JOBS=$(nproc 2>/dev/null || echo 4)
-info "Building with $JOBS parallel jobs..."
+info "Building with $JOBS parallel jobs (Android make-variable overrides, repo Makefile untouched)..."
 
 make clean
-make -j"$JOBS" CC="$CLANG_BIN" CXX="$CLANGXX_BIN" PRIMO_LINKER="$LLD_BIN"
+make -j"$JOBS" \
+    CC="$CLANG_BIN" CXX="$CLANGXX_BIN" PRIMO_LINKER="$LLD_BIN" \
+    PRIMO_HUGETLBFS=0 \
+    PRIMO_A53_ERRATA=0 \
+    PRIMO_EXTRA_CFLAGS="$TERMUX_EXTRA_OPT" \
+    PRIMO_EXTRA_CXXFLAGS="$TERMUX_EXTRA_OPT"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 

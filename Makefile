@@ -55,7 +55,13 @@ else
 # Match the promoted ccminer baseline profile on this device.
 # The validated winner tuned for A55/A53-style codegen, not the earlier A76 profile.
 BASE_ARCH_FLAGS = -march=$(PRIMO_MARCH) -mtune=$(PRIMO_MTUNE)
+# A53 erratum 835769 workaround. On by default for the rk3588 SBC profile;
+# Android/phone builds (no real A53) pass PRIMO_A53_ERRATA=0 to drop the NOP
+# overhead without losing the rk3588 A76 asm helpers (which help even on the
+# Mongoose M4 — so phones keep this profile rather than switching to generic).
+ifneq ($(PRIMO_A53_ERRATA),0)
 COMMON_OPT_FLAGS += -mfix-cortex-a53-835769
+endif
 endif
 
 # Last-resort full replacement of the arch/tune flags for a one-off CI probe.
@@ -85,7 +91,12 @@ PRIMO_LDFLAGS += -fuse-ld=$(PRIMO_LINKER)
 endif
 
 ifeq ($(strip $(PRIMO_LINKER)),lld)
+# hugetlbfs page-alignment hint (lld only). The Android kernel has no hugetlbfs
+# and its linker rejects the flag, so Termux/Android builds pass
+# PRIMO_HUGETLBFS=0 to drop it — no Makefile patching needed.
+ifneq ($(PRIMO_HUGETLBFS),0)
 PRIMO_LDFLAGS += -Wl,-hugetlbfs-align
+endif
 endif
 
 CPPFLAGS += $(PRIMO_CPPFLAGS)
