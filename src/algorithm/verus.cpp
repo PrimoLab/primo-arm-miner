@@ -140,6 +140,15 @@ static bool verus_use_fused_for_current_cpu(void)
 	for (int i = 0; i < g_num_cpus; i++) {
 		if (g_cpu_cores[i].cpu_id != cpu)
 			continue;
+		/* Qualcomm Oryon (Snapdragon X Elite / 8 Elite, MIDR 0x51/0x001):
+		 * measured +3.3% with fused on a 12-core X Elite (24.12 vs 23.36 MH/s,
+		 * Darktron 2026-06-15) — a custom core that, unlike the Samsung Mongoose
+		 * M4 (-24%), has a wide enough front-end to swallow the jump table.
+		 * Checked implementer-first because part 0x001 collides with the Samsung
+		 * Exynos M1 (0x53/0x001), which must stay on per-chain dispatch. */
+		if (g_cpu_cores[i].implementer == 0x51 &&
+		    g_cpu_cores[i].part_number == 0x001)
+			return true;
 		switch (g_cpu_cores[i].part_number) {
 		case 0xD0A: /* Cortex-A75 — measured +9% */
 		case 0xD0B: /* Cortex-A76 — measured +5.9% */
