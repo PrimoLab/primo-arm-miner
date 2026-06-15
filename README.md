@@ -106,20 +106,22 @@ CC=clang CXX=clang++ PRIMO_LINKER= make -j"$(nproc)"
 
 ### Device build profiles
 
-`make` defaults to `PROFILE=rk3588`, which enables the Cortex-A76 hand-scheduled
-assembly in the Verus hot path (validated on RK3588) plus the Cortex-A53 erratum
-workaround. For **any other device** — other SBCs, phones, or a CI matrix
-producing per-model binaries — use the portable profile:
+The Verus CLHash hand-scheduled assembly is **selected at runtime per core**
+(it is compiled into every binary and enabled on out-of-order cores), so a
+single binary is optimal on every device — there is no longer a separate
+"fast" build to pick. `make` defaults to `PROFILE=rk3588`, which adds only the
+Cortex-A53 erratum workaround (a harmless NOP on non-A53 cores). For phones and
+SBCs without a real Cortex-A53 core you can drop it:
 
 ```bash
 make PROFILE=generic
 ```
 
-`generic` drops the A76-specific hand assembly and the A53 erratum workaround and
-lets the compiler schedule the portable intrinsics. It keeps the
-`-mtune=cortex-a53` codegen tuning, which benchmarks fastest across heterogeneous
-big.LITTLE SoCs. Per-core kernel selection (interleaved/fused CLHash, SoA scrypt)
-is chosen at runtime, so it is identical under either profile.
+Both profiles produce the same runtime-dispatched binary; `generic` only omits
+the A53 erratum NOP. Both keep the `-mtune=cortex-a53` codegen tuning, which
+benchmarks fastest across heterogeneous big.LITTLE SoCs. All per-core kernel
+selection (the CLHash assembly, interleaved/fused CLHash, SoA scrypt) happens at
+runtime. (To force the portable C CLHash path for debugging: `VERUS_ASM=0`.)
 
 > **Do not raise `-march` to `armv8.2-a`.** It implies the LSE atomics extension,
 > which the compiler then emits inline; on an ARMv8.0 core (common in budget and
