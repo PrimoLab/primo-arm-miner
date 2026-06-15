@@ -3,12 +3,12 @@
 #include "cpu_features.h"
 #include <string.h>
 
-
-// Load CLHash constants for native implementation
-void load_clhash_constants_native(void) {
-    // No special constants needed for native PMULL implementation
-    // Hardware handles polynomial arithmetic directly
-}
+// This translation unit is compiled twice: as-is it builds the "_asm" variant
+// (USE_A76_* default on); clhash_native_noasm.c #includes it with the suffix
+// set to _noasm and the USE_A76_* macros forced to 0. See clhash_native.h.
+#ifndef CLHASH_SYM_SUFFIX
+#define CLHASH_SYM_SUFFIX _asm
+#endif
 
 // Per-iteration context computed before the case dispatch: selector, the two
 // random key slots (journaled for FixKey), and the pbuf/pbsf input pointers.
@@ -367,7 +367,9 @@ static inline uint64x2_t verus_clhash_iter(uint64x2_t acc,
 }
 
 // Core native CLHash implementation matching __verusclmulwithoutreduction64alignedrepeat_port2_2
-uint64x2_t __verusclmulwithoutreduction64alignedrepeat_port2_2_native(uint64x2_t *randomsource, const uint64x2_t buf[4], uint64_t keyMask,
+// Internal to this TU (called only by the x1 entry below), so static — each
+// compiled variant gets its own copy, no cross-variant symbol clash.
+static uint64x2_t __verusclmulwithoutreduction64alignedrepeat_port2_2_native(uint64x2_t *randomsource, const uint64x2_t buf[4], uint64_t keyMask,
                                                                        uint16_t *__restrict fixrand, uint16_t *__restrict fixrandex,
                                                                        uint64x2_t *g_prand, uint64x2_t *g_prandex) {
 
@@ -402,7 +404,7 @@ uint64x2_t __verusclmulwithoutreduction64alignedrepeat_port2_2_native(uint64x2_t
 // the single-chain path. Reduction is folded in here so callers get the final
 // 64-bit intermediates directly.
 __attribute__((noinline))
-void verusclhash_port2_2_x2_native(void * __restrict random1, void * __restrict random2,
+void CLHASH_SYM(verusclhash_port2_2_x2_native)(void * __restrict random1, void * __restrict random2,
                                    const unsigned char buf1[64], const unsigned char buf2[64],
                                    uint64_t keyMask,
                                    uint16_t * __restrict fixrand1, uint16_t * __restrict fixrandex1,
@@ -457,7 +459,7 @@ void verusclhash_port2_2_x2_native(void * __restrict random1, void * __restrict 
 // (-24%), so it is auto-selected per core (verus_use_fused_for_current_cpu
 // in verus.cpp); VERUS_FUSE=0/1 forces.
 __attribute__((noinline))
-void verusclhash_port2_2_x2f_native(void * __restrict random1, void * __restrict random2,
+void CLHASH_SYM(verusclhash_port2_2_x2f_native)(void * __restrict random1, void * __restrict random2,
                                     const unsigned char buf1[64], const unsigned char buf2[64],
                                     uint64_t keyMask,
                                     uint16_t * __restrict fixrand1, uint16_t * __restrict fixrandex1,
@@ -523,7 +525,7 @@ void verusclhash_port2_2_x2f_native(void * __restrict random1, void * __restrict
 }
 
 __attribute__((noinline))
-uint64_t verusclhash_port2_2_native(void *random, const unsigned char buf[64], uint64_t keyMask,
+uint64_t CLHASH_SYM(verusclhash_port2_2_native)(void *random, const unsigned char buf[64], uint64_t keyMask,
                                     uint16_t *__restrict fixrand, uint16_t *__restrict fixrandex,
                                     uint64x2_t *g_prand, uint64x2_t *g_prandex) {
 

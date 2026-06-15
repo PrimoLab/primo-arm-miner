@@ -180,6 +180,40 @@ static bool verus_use_fused_for_current_cpu(void)
 	return false;
 }
 
+/* Function-pointer types for the runtime-selected CLHash variants. Top-level
+ * __restrict on the underlying functions' params is not part of the function
+ * type, so these unqualified signatures bind to the _asm/_noasm symbols. */
+typedef uint64_t (*verus_clhash_x1_fn)(void *, const unsigned char *, uint64_t,
+	uint16_t *, uint16_t *, uint64x2_t *, uint64x2_t *);
+typedef void (*verus_clhash_x2_fn)(void *, void *, const unsigned char *, const unsigned char *,
+	uint64_t, uint16_t *, uint16_t *, uint64x2_t *, uint64x2_t *,
+	uint16_t *, uint16_t *, uint64x2_t *, uint64x2_t *, uint64_t *, uint64_t *);
+
+/* Select the hand-asm CLHash variant. It is bit-exact with the portable C path
+ * (verified by VERUS_X2_SELFTEST, which references _noasm) and measured
+ * net-positive on every core tested — Cortex-A76 (+4%), Samsung Mongoose M4
+ * (+3-4%), AND the in-order Cortex-A55 (asm-all 7.46 > asm-big-only 7.38 >
+ * C-all 7.19 MH/s, 8T RK3588). So enable it on ALL cores by default; this
+ * reproduces the old rk3588-profile behaviour in a single binary (no separate
+ * generic build) while keeping a runtime escape. If a future core regresses on
+ * the asm (cf. the fused-dispatch Mongoose case), add a MIDR check here to fall
+ * back to _noasm for that part. VERUS_ASM=0/1 forces. */
+static bool verus_use_asm_for_current_cpu(void)
+{
+	const char *e = getenv("VERUS_ASM");
+	if (e && e[0])
+		return e[0] != '0';
+
+	/* No core has shown an asm regression yet, so the blocklist is empty.
+	 * Example future fallback:
+	 *   int cpu = sched_getcpu();
+	 *   if (cpu >= 0) for (int i = 0; i < g_num_cpus; i++)
+	 *       if (g_cpu_cores[i].cpu_id == cpu && is_asm_regressing_part(...))
+	 *           return false;
+	 */
+	return true;
+}
+
 static void generate_cl_key(unsigned char *seed_bytes_32, verus_vec128_t *key_buffer)
 {
 	// Expand the 64-byte half-hash into the CLHash key schedule used by Verus.
@@ -285,7 +319,8 @@ static VERUS_ALWAYS_INLINE void finalize_verus_hash(unsigned char *hash, unsigne
 	                     preserved_values_mirror);
 }
 
-static VERUS_ALWAYS_INLINE void compute_verus_hash(unsigned char *hash, unsigned char *cur_buf,
+static VERUS_ALWAYS_INLINE void compute_verus_hash(verus_clhash_x1_fn clhash_x1,
+	unsigned char *hash, unsigned char *cur_buf,
 	unsigned char *nonce_bytes, verus_vec128_t * __restrict key_buffer,
 	uint16_t * __restrict mutated_slots, uint16_t * __restrict mirrored_slots,
 	verus_vec128_t * __restrict preserved_values,
@@ -293,7 +328,7 @@ static VERUS_ALWAYS_INLINE void compute_verus_hash(unsigned char *hash, unsigned
 {
 	prepare_hash_buf(cur_buf, nonce_bytes);
 
-	const uint64_t intermediate = verusclhash_port2_2_native(key_buffer, cur_buf, kClHashKeyMask,
+	const uint64_t intermediate = clhash_x1(key_buffer, cur_buf, kClHashKeyMask,
 	                                          mutated_slots, mirrored_slots,
 	                                          reinterpret_cast<uint64x2_t *>(preserved_values),
 	                                          reinterpret_cast<uint64x2_t *>(preserved_values_mirror));
@@ -413,6 +448,16 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	const char *x2_st_env = getenv("VERUS_X2_SELFTEST");
 	const bool x2_selftest = x2_st_env && x2_st_env[0] == '1';
 	const bool use_fused = verus_use_fused_for_current_cpu();
+	const bool use_asm = verus_use_asm_for_current_cpu();
+
+	/* Per-thread CLHash variant: hand-asm on big cores, portable C otherwise.
+	 * The selftest below always references the portable _noasm x1, so
+	 * VERUS_X2_SELFTEST=1 also validates _asm == _noasm at runtime. */
+	const verus_clhash_x1_fn clhash_x1 = use_asm ? verusclhash_port2_2_native_asm
+	                                             : verusclhash_port2_2_native_noasm;
+	const verus_clhash_x2_fn clhash_x2 = use_asm
+		? (use_fused ? verusclhash_port2_2_x2f_native_asm : verusclhash_port2_2_x2_native_asm)
+		: (use_fused ? verusclhash_port2_2_x2f_native_noasm : verusclhash_port2_2_x2_native_noasm);
 
 	if (use_x2) {
 		alignas(16) uint8_t cur_a[kHashStateBytes];
@@ -435,8 +480,7 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 			prepare_hash_buf(cur_b, nonce_space_b);
 
 			uint64_t inter_a, inter_b;
-			(use_fused ? verusclhash_port2_2_x2f_native
-			           : verusclhash_port2_2_x2_native)(
+			clhash_x2(
 				key_buffer, key_buffer2, cur_a, cur_b,
 				kClHashKeyMask,
 				mutated_slots, mirrored_slots,
@@ -459,7 +503,8 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 				alignas(16) uint8_t scratch[kHashStateBytes];
 				uint32_t ref_hash[8];
 				memcpy(scratch, blockhash_half, kHashStateBytes);
-				compute_verus_hash((unsigned char *)ref_hash, scratch, nonce_space,
+				compute_verus_hash(verusclhash_port2_2_native_noasm,
+					(unsigned char *)ref_hash, scratch, nonce_space,
 					key_buffer, mutated_slots, mirrored_slots,
 					preserved_values, preserved_values_mirror);
 				if (memcmp(ref_hash, candidate_hash, sizeof(ref_hash))) {
@@ -467,7 +512,8 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 					abort();
 				}
 				memcpy(scratch, blockhash_half, kHashStateBytes);
-				compute_verus_hash((unsigned char *)ref_hash, scratch, nonce_space_b,
+				compute_verus_hash(verusclhash_port2_2_native_noasm,
+					(unsigned char *)ref_hash, scratch, nonce_space_b,
 					key_buffer, mutated_slots, mirrored_slots,
 					preserved_values, preserved_values_mirror);
 				if (memcmp(ref_hash, candidate_b, sizeof(ref_hash))) {
@@ -492,7 +538,7 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	       !miner_should_abort()) {
 		((uint32_t *)(&nonce_space[11]))[0] = nonce_buf;
 
-		compute_verus_hash((unsigned char *)candidate_hash, (unsigned char *)blockhash_half,
+		compute_verus_hash(clhash_x1, (unsigned char *)candidate_hash, (unsigned char *)blockhash_half,
 			nonce_space, key_buffer, mutated_slots, mirrored_slots, preserved_values,
 			preserved_values_mirror);
 		scanned_hashes++;

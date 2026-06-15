@@ -98,43 +98,49 @@ static inline uint64_t precompReduction64_native(uint64x2_t A) {
     return vgetq_lane_u64(final, 0);
 }
 
-// Core CLHash implementation matching portable algorithm exactly
-uint64x2_t __verusclmulwithoutreduction64alignedrepeat_port2_2_native(uint64x2_t *randomsource, const uint64x2_t buf[4], uint64_t keyMask,
-                                                                       uint16_t *__restrict fixrand, uint16_t *__restrict fixrandex,
-                                                                       uint64x2_t *g_prand, uint64x2_t *g_prandex);
+// ---------------------------------------------------------------------------
+// Runtime-selectable CLHash variants.
+//
+// The hot CLHash loop is compiled twice into distinct symbols: a "_asm" variant
+// with the wide-out-of-order-big-core hand-asm helpers (the USE_A76_* blocks
+// above) and a portable "_noasm" C variant. verus.cpp picks per thread by core
+// type (big core -> _asm, in-order/unknown -> _noasm) so a single binary is
+// optimal on every core — no rk3588-vs-generic build split. The two variants
+// are bit-identical; VERUS_X2_SELFTEST=1 references the _noasm path so it also
+// validates _asm == _noasm at runtime.
+//
+//   x1  = verusclhash_port2_2_native       single nonce / odd remainder
+//   x2  = verusclhash_port2_2_x2_native    two interleaved nonce chains
+//   x2f = verusclhash_port2_2_x2f_native   x2 with one fused 64-way dispatch
+//
+// clhash_native.c defines whichever variant CLHASH_SYM_SUFFIX selects (default
+// _asm); clhash_native_noasm.c sets the suffix to _noasm + the USE_A76_*=0
+// macros and #includes clhash_native.c.
+#define CLHASH_CAT2_(a, b) a##b
+#define CLHASH_CAT_(a, b) CLHASH_CAT2_(a, b)
+#define CLHASH_SYM(name) CLHASH_CAT_(name, CLHASH_SYM_SUFFIX)
 
-uint64_t verusclhash_port2_2_native(void *random, const unsigned char buf[64], uint64_t keyMask,
-                                    uint16_t *__restrict fixrand, uint16_t *__restrict fixrandex,
-                                    uint64x2_t *g_prand, uint64x2_t *g_prandex);
+#define CLHASH_DECLARE_VARIANT(sfx)                                                             \
+    uint64_t verusclhash_port2_2_native##sfx(void *random, const unsigned char buf[64],         \
+        uint64_t keyMask, uint16_t *__restrict fixrand, uint16_t *__restrict fixrandex,          \
+        uint64x2_t *g_prand, uint64x2_t *g_prandex);                                             \
+    void verusclhash_port2_2_x2_native##sfx(void *__restrict random1, void *__restrict random2,  \
+        const unsigned char buf1[64], const unsigned char buf2[64], uint64_t keyMask,            \
+        uint16_t *__restrict fixrand1, uint16_t *__restrict fixrandex1,                          \
+        uint64x2_t *__restrict g_prand1, uint64x2_t *__restrict g_prandex1,                      \
+        uint16_t *__restrict fixrand2, uint16_t *__restrict fixrandex2,                          \
+        uint64x2_t *__restrict g_prand2, uint64x2_t *__restrict g_prandex2,                      \
+        uint64_t *__restrict result1, uint64_t *__restrict result2);                             \
+    void verusclhash_port2_2_x2f_native##sfx(void *__restrict random1, void *__restrict random2, \
+        const unsigned char buf1[64], const unsigned char buf2[64], uint64_t keyMask,            \
+        uint16_t *__restrict fixrand1, uint16_t *__restrict fixrandex1,                          \
+        uint64x2_t *__restrict g_prand1, uint64x2_t *__restrict g_prandex1,                      \
+        uint16_t *__restrict fixrand2, uint16_t *__restrict fixrandex2,                          \
+        uint64x2_t *__restrict g_prand2, uint64x2_t *__restrict g_prandex2,                      \
+        uint64_t *__restrict result1, uint64_t *__restrict result2);
 
-// Two-nonce interleaved CLHash: two independent chains (separate key buffers)
-// run through the same loop so an OoO core overlaps their latency chains.
-// Results are the fully reduced 64-bit intermediates, bit-identical per chain
-// to verusclhash_port2_2_native.
-void verusclhash_port2_2_x2_native(void * __restrict random1, void * __restrict random2,
-                                   const unsigned char buf1[64], const unsigned char buf2[64],
-                                   uint64_t keyMask,
-                                   uint16_t * __restrict fixrand1, uint16_t * __restrict fixrandex1,
-                                   uint64x2_t * __restrict g_prand1, uint64x2_t * __restrict g_prandex1,
-                                   uint16_t * __restrict fixrand2, uint16_t * __restrict fixrandex2,
-                                   uint64x2_t * __restrict g_prand2, uint64x2_t * __restrict g_prandex2,
-                                   uint64_t * __restrict result1, uint64_t * __restrict result2);
-
-// Fused-dispatch two-nonce CLHash. Same contract as the x2 entry point; both
-// chains' case dispatches share one 64-way switch (one mispredict bubble per
-// pair-iteration instead of two). Auto-selected on ARM A75+-generation big
-// cores; VERUS_FUSE=0/1 forces.
-void verusclhash_port2_2_x2f_native(void * __restrict random1, void * __restrict random2,
-                                    const unsigned char buf1[64], const unsigned char buf2[64],
-                                    uint64_t keyMask,
-                                    uint16_t * __restrict fixrand1, uint16_t * __restrict fixrandex1,
-                                    uint64x2_t * __restrict g_prand1, uint64x2_t * __restrict g_prandex1,
-                                    uint16_t * __restrict fixrand2, uint16_t * __restrict fixrandex2,
-                                    uint64x2_t * __restrict g_prand2, uint64x2_t * __restrict g_prandex2,
-                                    uint64_t * __restrict result1, uint64_t * __restrict result2);
-
-// Initialize CLHash constants for native implementation
-void load_clhash_constants_native(void);
+CLHASH_DECLARE_VARIANT(_asm)
+CLHASH_DECLARE_VARIANT(_noasm)
 
 // =============================================================================
 // PHASE 1 OPTIMIZATION: Code size reduction helpers

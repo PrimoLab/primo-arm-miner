@@ -24,10 +24,9 @@ set(PRIMO_PROFILE "rk3588" CACHE STRING "Device profile: rk3588 or generic")
 set(PRIMO_BASE_ARCH_FLAGS "-march=armv8-a+crypto -mtune=cortex-a53")
 set(PRIMO_COMMON_FLAGS "-O3 -ffinite-loops -ffast-math -D_REENTRANT -DUSE_DIRECT_NATIVE_CALL=1 -falign-functions=16 -fomit-frame-pointer -fpic -pthread -flto -fno-stack-protector -flax-vector-conversions -Wall")
 if(PRIMO_PROFILE STREQUAL "generic")
-    string(APPEND PRIMO_COMMON_FLAGS
-        " -DUSE_A76_ASM_AES_MIX2=0 -DUSE_A76_ASM_CASE18_CLMUL=0"
-        " -DUSE_A76_ASM_XOR_LOW32=0 -DUSE_A76_CASE18_FIXEDCOUNT=0"
-        " -DUSE_A76_CASE18_MASK_PTRS=0 -DUSE_A76_FIXKEY_UNROLL=0")
+    # The CLHash hand-asm is no longer profile-gated: it is compiled into both
+    # clhash_native.c (_asm) and clhash_native_noasm.c (_noasm) and selected
+    # per-thread at runtime by core type (see clhash_native.h). Nothing to add.
 elseif(PRIMO_PROFILE STREQUAL "rk3588")
     string(APPEND PRIMO_COMMON_FLAGS " -mfix-cortex-a53-835769")
 else()
@@ -80,6 +79,7 @@ set(SOURCES
     src/stratum_verus.cpp
     src/algorithm/verus.cpp
     src/algorithm/clhash_native.c
+    src/algorithm/clhash_native_noasm.c
     src/algorithm/haraka_native.c
     src/algorithm/cpu_features.c
     src/algorithm/sha256_neon.c
@@ -99,6 +99,7 @@ set_source_files_properties(
 )
 set_source_files_properties(
     src/algorithm/clhash_native.c
+    src/algorithm/clhash_native_noasm.c
     src/algorithm/haraka_native.c
     PROPERTIES COMPILE_OPTIONS "-fno-unroll-loops"
 )

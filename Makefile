@@ -41,16 +41,14 @@ PRIMO_MARCH ?= armv8-a+crypto
 PRIMO_MTUNE ?= cortex-a53
 
 ifeq ($(PROFILE),generic)
-# Portable intrinsics for unknown / non-A76 cores. The A76 hand-scheduled asm
-# is frozen to one microarch and is only a ~2-4% win even where it helps, so it
-# is dropped here in favour of compiler-scheduled intrinsics. The a53 tune is
-# kept on purpose: bench data shows conservative -mtune=cortex-a53 generalises
-# better than -mtune=native even on the A76, so it is the safest default across
-# heterogeneous cores. The a53 errata workaround is dropped (not an A53).
+# Portable profile for non-A76 SBCs. The CLHash hand-asm is no longer gated by
+# the profile: it is compiled into BOTH builds (clhash_native.c = _asm,
+# clhash_native_noasm.c = _noasm) and selected per-thread at runtime by core
+# type (see clhash_native.h), so one binary is optimal on every core. The a53
+# tune is kept on purpose (bench data: conservative -mtune=cortex-a53
+# generalises better than -mtune=native even on the A76). The a53 errata
+# workaround is dropped here (not an A53).
 BASE_ARCH_FLAGS = -march=$(PRIMO_MARCH) -mtune=$(PRIMO_MTUNE)
-COMMON_OPT_FLAGS += -DUSE_A76_ASM_AES_MIX2=0 -DUSE_A76_ASM_CASE18_CLMUL=0
-COMMON_OPT_FLAGS += -DUSE_A76_ASM_XOR_LOW32=0 -DUSE_A76_CASE18_FIXEDCOUNT=0
-COMMON_OPT_FLAGS += -DUSE_A76_CASE18_MASK_PTRS=0 -DUSE_A76_FIXKEY_UNROLL=0
 else
 # Match the promoted ccminer baseline profile on this device.
 # The validated winner tuned for A55/A53-style codegen, not the earlier A76 profile.
@@ -111,6 +109,7 @@ CLHASH_EXTRA_FLAGS ?=
 
 SOURCES_C = \
 	src/algorithm/clhash_native.c \
+	src/algorithm/clhash_native_noasm.c \
 	src/algorithm/haraka_native.c \
 	src/algorithm/cpu_features.c \
 	src/algorithm/scrypt_neon.c \
@@ -167,7 +166,13 @@ src/algorithm/scrypt_neon.o: src/algorithm/scrypt_neon.c
 #   +1.1-1.2% on Verus (CLHash mixed pointer types benefit from strict
 #   aliasing letting the compiler reorder loads/stores). See CLAUDE.md.
 src/algorithm/clhash_native.o: src/algorithm/clhash_native.c
-	@echo "Compiling $< (no unroll-loops)..."
+	@echo "Compiling $< (no unroll-loops, asm variant)..."
+	$(CC) $(CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -fno-unroll-loops $(CLHASH_EXTRA_FLAGS) -c $< -o $@
+
+# No-asm variant of the same hot loop (wrapper #includes clhash_native.c with
+# CLHASH_SYM_SUFFIX=_noasm + USE_A76_*=0). Same -fno-unroll-loops as above.
+src/algorithm/clhash_native_noasm.o: src/algorithm/clhash_native_noasm.c src/algorithm/clhash_native.c
+	@echo "Compiling $< (no unroll-loops, no-asm variant)..."
 	$(CC) $(CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -fno-unroll-loops $(CLHASH_EXTRA_FLAGS) -c $< -o $@
 
 src/algorithm/haraka_native.o: src/algorithm/haraka_native.c
