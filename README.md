@@ -13,6 +13,27 @@ installs runtime libraries, and prints a mining quickstart. ARMv8 crypto
 extensions (AES/PMULL/SHA2) are required — standard on every 64-bit ARM SoC
 of the last decade.
 
+### Runtime packages
+
+The binary links two shared libraries: **libcurl** and **libjansson**. The
+installer pulls them in automatically; if you grab the binary manually, or the
+auto-install fails (the miner then exits with a missing-library error), install
+them yourself:
+
+```bash
+# Debian / Ubuntu / Armbian / Raspberry Pi OS (arm64)
+sudo apt-get install -y libcurl4 libjansson4
+
+# Termux (Android)
+pkg install libcurl libjansson
+
+# Fedora / RHEL
+sudo dnf install libcurl jansson
+
+# Alpine
+sudo apk add curl jansson
+```
+
 > **Termux note:** if launching fails with `CANNOT LINK EXECUTABLE ...
 > libcurl.so`, your Termux packages are out of sync (libcurl newer than its
 > ngtcp2 dependency). Run `pkg update && pkg upgrade -y` and retry.
@@ -275,17 +296,6 @@ the slice is skipped immediately — your mining time is never held up by it.
 Implemented in `src/dev_fee.cpp`; the fee and the donations below are the
 project's only funding, and forks are of course free to change it (GPL).
 
-## Donations
-
-If this miner earns you something and you'd like to support it, donations
-go directly toward acquiring ARMv9 test hardware (SVE2-capable boards and
-phones) so future optimization work can target the next generation of ARM
-cores the same way this release was tuned on real ARMv8 silicon:
-
-- **VRSC**: `RDArJkrPSKPhX8zwUJHLu2SJWrL4GwCgKz`
-- **BTC**: `15nR6PuUkjTyjv9dnkYd2GbjbgiMxs4dLi`
-- **LTC**: `ltc1qguj48xprktyeqm4dqrje5cr7f8g76e0mvrdjh6`
-
 ## Validation
 
 - Startup self-tests verify the scrypt SoA path against a reference
@@ -293,46 +303,6 @@ cores the same way this release was tuned on real ARMv8 silicon:
   interleaved Verus path hash-for-hash.
 - Live share acceptance verified on pool.verus.io (Verus, 100% over 350+
   shares), public-pool.io (SHA256d), and litecoinpool.org (scrypt).
-
-## Project Structure
-
-```
-primo-arm-miner/
-├── src/
-│   ├── main.cpp               # Entry point, benchmark mode
-│   ├── config.cpp             # Config parser (ccminer compatible)
-│   ├── api.cpp                # Compatibility API service
-│   ├── miner.cpp              # Mining coordinator, threading
-│   ├── stratum.cpp            # Protocol dispatch + shared helpers
-│   ├── stratum_internal.h     # Protocol-ops struct, internal API
-│   ├── stratum_handshake.cpp  # Subscribe/authorize flow
-│   ├── stratum_transport.cpp  # Socket I/O: connect, send/recv, shutdown
-│   ├── stratum_session.cpp    # Message loop, session lifecycle, failover
-│   ├── stratum_standard.cpp   # Standard stratum (SHA256d, Scrypt)
-│   ├── stratum_verus.cpp      # Verus/Equihash stratum
-│   ├── stratum_rpc.cpp        # JSON-RPC build/dispatch, difficulty
-│   ├── stratum_state.cpp      # Shared work/runtime state, share stats
-│   ├── stratum_job.cpp        # Job commit / work building
-│   ├── dev_fee.cpp            # Time-slice dev fee scheduler (2% verus, 1% rest)
-│   ├── algorithm/
-│   │   ├── verus.cpp          # VerusHash v2.2 (CLHash + Haraka512)
-│   │   ├── clhash_native.c    # Native CLHash (PMULL)
-│   │   ├── haraka_native.c    # Native Haraka (AES)
-│   │   ├── sha256_neon.c      # SHA256d (ARMv8 SHA2 + NEON fallback)
-│   │   ├── sha256_ce_asm.S    # Hand-tuned dual-nonce SHA256d asm
-│   │   ├── scrypt_neon.c      # Scrypt (scalar Salsa20/8)
-│   │   ├── scrypt_blockmix_asm.S # Fused BlockMix asm
-│   │   └── cpu_features.c     # CPU detection, topology, temp
-│   └── utils/
-│       └── log.cpp            # Logging
-├── include/                   # miner.h + per-algorithm API headers
-├── Makefile                   # Primary build (clang-16, per-file rules)
-├── CMakeLists.txt             # Alternative CMake build
-├── build.sh                   # CMake helper build script
-├── build_termux.sh            # Native Termux (Android) build
-├── install.sh                 # Prebuilt-binary installer
-└── README.md
-```
 
 ## Credits
 
@@ -370,6 +340,17 @@ arrangements, and the terms of any pool you connect to. Double-check wallet
 addresses — shares mined to a mistyped address are unrecoverable.
 
 Use responsibly.
+
+## Donations
+
+If this miner earns you something and you'd like to support it, donations
+go directly toward acquiring ARMv9 test hardware (SVE2-capable boards and
+phones) so future optimization work can target the next generation of ARM
+cores the same way this release was tuned on real ARMv8 silicon:
+
+- **VRSC**: `RDArJkrPSKPhX8zwUJHLu2SJWrL4GwCgKz`
+- **BTC**: `15nR6PuUkjTyjv9dnkYd2GbjbgiMxs4dLi`
+- **LTC**: `ltc1qguj48xprktyeqm4dqrje5cr7f8g76e0mvrdjh6`
 
 ## License
 
