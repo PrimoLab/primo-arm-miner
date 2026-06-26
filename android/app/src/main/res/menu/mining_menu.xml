@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
+        android:id="@+id/action_logs"
+        android:title="@string/logs_title"
+        android:icon="@drawable/ic_logs"
+        android:showAsAction="always" />
+    <item
         android:id="@+id/action_config"
         android:title="@string/config_title"
-        android:icon="@android:drawable/ic_menu_preferences"
+        android:icon="@drawable/ic_cog"
         android:showAsAction="always" />
 </menu>

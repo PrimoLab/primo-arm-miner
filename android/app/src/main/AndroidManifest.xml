@@ -40,6 +40,11 @@
             android:exported="false"
             android:label="@string/config_title" />
 
+        <activity
+            android:name=".LogActivity"
+            android:exported="false"
+            android:label="@string/logs_title" />
+
         <service
             android:name=".MinerService"
             android:exported="false"
