@@ -182,11 +182,16 @@ class MiningActivity : Activity() {
      * to Android's framework thermal signal — these need NO root and NO
      * permission, and work where sysfs is sealed off:
      *   - getThermalHeadroom (API 30+): a 0..1 value toward the throttle point,
-     *     continuous, so it tracks heating; shown as a "thermal load" %.
+     *     continuous, so it tracks heating; shown as a "thermal load" %. (NaN on
+     *     devices that don't implement it — e.g. Exynos — then we drop down.)
+     *   - battery temperature (BatteryManager.EXTRA_TEMPERATURE): a real °C, on
+     *     EVERY device with no root/perm. Not the CPU, but it tracks sustained
+     *     load — the universal fallback for stock Exynos Samsung where both the
+     *     sysfs read and thermal headroom fail. Labelled "BATT TEMP" to be honest.
      *   - currentThermalStatus (API 29+): coarse NONE/LIGHT/.../SHUTDOWN enum
      *     (only trips near the device's own throttle limit) — last-resort label.
-     * True °C from the framework needs device-owner privilege, so a sideloaded
-     * app cannot get it; the native sysfs read is the only source of real °C.
+     * True CPU °C from the framework needs device-owner privilege, so a sideloaded
+     * app cannot get it; the native sysfs read is the only source of real CPU °C.
      */
     private fun renderTemp(nativeTemp: Int) {
         if (nativeTemp > 0) {
@@ -204,6 +209,13 @@ class MiningActivity : Activity() {
                 return
             }
         }
+        val batt = batteryTempC()
+        if (batt != null) {
+            setLbl(R.id.lblTemp, "BATT TEMP")
+            setValColored(R.id.valTemp, "$batt °C",
+                if (batt >= 45) DANGER else if (batt >= 40) WARN else TEXT)
+            return
+        }
         if (Build.VERSION.SDK_INT >= 29) {
             val (word, color) = thermalStatusWord(pm.currentThermalStatus)
             setLbl(R.id.lblTemp, "THERMAL STATE")
@@ -212,6 +224,13 @@ class MiningActivity : Activity() {
         }
         setLbl(R.id.lblTemp, "TEMPERATURE")
         setValColored(R.id.valTemp, "—", TEXT)
+    }
+
+    /** Battery temperature in whole °C (EXTRA_TEMPERATURE is tenths). No perm. */
+    private fun batteryTempC(): Int? {
+        val bi = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val t = bi?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE
+        return if (t > 0) t / 10 else null
     }
 
     private fun thermalStatusWord(s: Int): Pair<String, Int> = when (s) {
