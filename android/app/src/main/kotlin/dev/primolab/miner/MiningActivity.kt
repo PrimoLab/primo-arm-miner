@@ -157,8 +157,7 @@ class MiningActivity : Activity() {
         setVal(R.id.valDiff, fmtDiff(s["DIFF"]))
         setVal(R.id.valUptime, fmtUptime(s["UPTIME"]?.toDoubleOrNull() ?: 0.0))
         setVal(R.id.valMaxhash, fmtRate(maxKhs))
-        val temp = hw?.get("CPUTEMP")?.toIntOrNull() ?: 0
-        setValColored(R.id.valTemp, if (temp > 0) "$temp °C" else "—", tempColor(temp))
+        renderTemp(hw?.get("CPUTEMP")?.toIntOrNull() ?: 0)
 
         renderThreads(t)
     }
@@ -176,6 +175,56 @@ class MiningActivity : Activity() {
         t >= 72 -> WARN
         else -> TEXT
     }
+
+    /**
+     * Temperature tile. Prefer the native miner's real °C (read from sysfs).
+     * Where that's blocked without root (stock Samsung SELinux, etc.), fall back
+     * to Android's framework thermal signal — these need NO root and NO
+     * permission, and work where sysfs is sealed off:
+     *   - getThermalHeadroom (API 30+): a 0..1 value toward the throttle point,
+     *     continuous, so it tracks heating; shown as a "thermal load" %.
+     *   - currentThermalStatus (API 29+): coarse NONE/LIGHT/.../SHUTDOWN enum
+     *     (only trips near the device's own throttle limit) — last-resort label.
+     * True °C from the framework needs device-owner privilege, so a sideloaded
+     * app cannot get it; the native sysfs read is the only source of real °C.
+     */
+    private fun renderTemp(nativeTemp: Int) {
+        if (nativeTemp > 0) {
+            setLbl(R.id.lblTemp, "TEMPERATURE")
+            setValColored(R.id.valTemp, "$nativeTemp °C", tempColor(nativeTemp))
+            return
+        }
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (Build.VERSION.SDK_INT >= 30) {
+            val h = try { pm.getThermalHeadroom(0) } catch (e: Exception) { Float.NaN }
+            if (h.isFinite() && h > 0f) {
+                setLbl(R.id.lblTemp, "THERMAL LOAD")
+                setValColored(R.id.valTemp, "${(h * 100).toInt().coerceIn(0, 200)}%",
+                    if (h >= 0.9f) DANGER else if (h >= 0.75f) WARN else TEXT)
+                return
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            val (word, color) = thermalStatusWord(pm.currentThermalStatus)
+            setLbl(R.id.lblTemp, "THERMAL STATE")
+            setValColored(R.id.valTemp, word, color)
+            return
+        }
+        setLbl(R.id.lblTemp, "TEMPERATURE")
+        setValColored(R.id.valTemp, "—", TEXT)
+    }
+
+    private fun thermalStatusWord(s: Int): Pair<String, Int> = when (s) {
+        PowerManager.THERMAL_STATUS_LIGHT -> "Light" to TEXT
+        PowerManager.THERMAL_STATUS_MODERATE -> "Moderate" to WARN
+        PowerManager.THERMAL_STATUS_SEVERE -> "Severe" to WARN
+        PowerManager.THERMAL_STATUS_CRITICAL -> "Critical" to DANGER
+        PowerManager.THERMAL_STATUS_EMERGENCY -> "Emergency" to DANGER
+        PowerManager.THERMAL_STATUS_SHUTDOWN -> "Shutdown" to DANGER
+        else -> "Nominal" to TEXT   // THERMAL_STATUS_NONE
+    }
+
+    private fun setLbl(id: Int, v: String) { findViewById<TextView>(id).text = v }
 
     private fun renderThreads(list: List<Map<String, String>>?) {
         threadWrap.removeAllViews()
