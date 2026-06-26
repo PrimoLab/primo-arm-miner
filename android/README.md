@@ -137,14 +137,24 @@ Takes effect the next time mining starts.
 - [ ] POST_NOTIFICATIONS runtime request (Android 13+) so the notification shows
 - [ ] targetSdk 34 needs a real `foregroundServiceType` justification (currently
       `dataSync` at targetSdk 33)
-- [ ] Test on a NON-rooted device (install by tap, start via the UI button — the
-      root `pm install`/`am` path was just the test harness). Expect background
-      throttling ("N of M CPUs" + uclamp); full speed only while on-screen.
+- [ ] Test on a NON-rooted device (Note 20 Ultra; debug-signed APK ready) —
+      install by tap, start via the UI button (the root `pm install`/`am` path was
+      just the test harness). Expect background throttling ("N of M CPUs" + uclamp);
+      full speed only while on-screen.
 - [x] Per-thread / temp view (poll `threads` + `hwinfo` API commands)
 - [x] **Thread chips wrap to centered rows** for >8-thread phones (10/12-core),
       with status as a colored pill (mining/connecting) and threshold-colored temp.
 - [x] **Optional LAN API** — a Config checkbox binds the status API to `0.0.0.0`
       for remote ccminer-compatible monitoring (default stays `127.0.0.1`).
+- [x] **Settings cog** replaces the framework wrench in the action bar (vector).
+- [x] **In-app log viewer** (`LogActivity`): read-only tail of the miner's
+      `miner.log` (drained native stdout), ANSI-stripped, 2s auto-refresh, opened
+      from a log icon beside the cog. Useful for diagnosing on non-rooted devices
+      without `adb logcat`.
+- [x] **IPv6 pool fix**: pool hosts that resolve to IPv6 were producing an
+      unparseable `stratum+tcp://<v6>:port` URL (silent connect-retry loop, UI
+      stuck "connecting"). `MinerService` now prefers an IPv4 address, bracketing
+      IPv6 (`[addr]:port`) only when that's all a host offers.
 - [ ] Release signing keystore (separate from the debug one) for distribution
 - [ ] Optional later: Gradle/AGP project for x86 CI builds; JNI in-process variant
       if any device rejects subprocess exec
