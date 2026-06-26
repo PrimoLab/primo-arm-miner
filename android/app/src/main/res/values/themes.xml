@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="PrimoDark" parent="@android:style/Theme.Material">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="android:colorPrimary">@color/bar</item>
+        <item name="android:colorPrimaryDark">@color/bg</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:textColorSecondary">@color/textdim</item>
+    </style>
+
+    <style name="StatValue">
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <style name="StatLabel">
+        <item name="android:textColor">@color/textdim</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:letterSpacing">0.04</item>
+        <item name="android:layout_marginTop">3dp</item>
+    </style>
+
+    <!-- Config form -->
+    <style name="FieldLabel">
+        <item name="android:textColor">@color/textdim</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:letterSpacing">0.03</item>
+        <item name="android:layout_marginTop">18dp</item>
+        <item name="android:layout_marginBottom">7dp</item>
+    </style>
+
+    <style name="FieldInput">
+        <item name="android:background">@drawable/field_bg</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textColorHint">@color/textdim</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:paddingHorizontal">14dp</item>
+        <item name="android:minHeight">52dp</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+</resources>

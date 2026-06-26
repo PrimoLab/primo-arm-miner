@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="28dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Pool &amp; worker settings for the selected algorithm."
+            android:textColor="@color/textdim"
+            android:textSize="13sp" />
+
+        <TextView style="@style/FieldLabel"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="ALGORITHM" />
+        <Spinner android:id="@+id/algoSpinner"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:background="@drawable/field_bg"
+            android:minHeight="52dp"
+            android:paddingHorizontal="10dp" />
+
+        <TextView style="@style/FieldLabel"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="POOL URL" />
+        <EditText android:id="@+id/urlField" style="@style/FieldInput"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:inputType="textUri"
+            android:hint="stratum+tcp://host:port" />
+
+        <TextView style="@style/FieldLabel"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="WALLET / USER.WORKER" />
+        <EditText android:id="@+id/userField" style="@style/FieldInput"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:inputType="text"
+            android:hint="wallet.worker" />
+
+        <TextView style="@style/FieldLabel"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="PASSWORD" />
+        <EditText android:id="@+id/passField" style="@style/FieldInput"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:inputType="text" android:text="x" />
+
+        <TextView style="@style/FieldLabel"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="THREADS" />
+        <EditText android:id="@+id/threadsField" style="@style/FieldInput"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:inputType="number" android:text="4" />
+
+        <CheckBox android:id="@+id/lanApiCheck"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Allow network monitoring"
+            android:textColor="@color/text"
+            android:textSize="15sp" />
+
+        <TextView
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:layout_marginStart="2dp"
+            android:text="Expose the read-only status API (port 4068) to other devices on your wifi. Off = this phone only."
+            android:textColor="@color/textdim"
+            android:textSize="12sp" />
+
+        <Button android:id="@+id/saveButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="30dp"
+            android:background="@drawable/pill_bg"
+            android:backgroundTint="@color/accent"
+            android:text="@string/save"
+            android:textColor="#0B0C10"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</ScrollView>

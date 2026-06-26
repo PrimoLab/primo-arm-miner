@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="14dp"
+            android:paddingBottom="8dp">
+
+            <!-- Hashrate hero panel -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/hero_card"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="16dp">
+
+                <TextView
+                    android:id="@+id/hashrateText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="0.00 MH/s"
+                    android:textColor="@color/accent"
+                    android:textSize="40sp"
+                    android:textStyle="bold"
+                    android:fontFamily="sans-serif-medium" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="HASHRATE"
+                    android:textColor="@color/textdim"
+                    android:textSize="12sp"
+                    android:letterSpacing="0.2" />
+
+                <TextView
+                    android:id="@+id/algoText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center"
+                    android:text="—"
+                    android:textColor="@color/text"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/poolText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text=""
+                    android:textColor="@color/textdim"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- Status pill -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/status_pill"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="7dp">
+
+                <View
+                    android:id="@+id/statusDot"
+                    android:layout_width="9dp"
+                    android:layout_height="9dp"
+                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/status_dot" />
+
+                <TextView
+                    android:id="@+id/statusText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/status_idle"
+                    android:textColor="@color/textdim"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.08" />
+            </LinearLayout>
+
+            <!-- Per-thread chips: vertical container, rows built/wrapped in code
+                 (collapsed when idle). -->
+            <LinearLayout
+                android:id="@+id/threadWrap"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="vertical"
+                android:visibility="gone" />
+
+            <!-- Stat grid -->
+            <GridLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:columnCount="2">
+
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:layout_margin="4dp" android:orientation="vertical" android:background="@drawable/stat_tile" android:padding="12dp">
+                    <TextView android:id="@+id/valAccepted" style="@style/StatValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0" />
+                    <TextView style="@style/StatLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ACCEPTED" />
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:layout_margin="4dp" android:orientation="vertical" android:background="@drawable/stat_tile" android:padding="12dp">
+                    <TextView android:id="@+id/valRejected" style="@style/StatValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0" />
+                    <TextView style="@style/StatLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="REJECTED" />
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:layout_margin="4dp" android:orientation="vertical" android:background="@drawable/stat_tile" android:padding="12dp">
+                    <TextView android:id="@+id/valDiff" style="@style/StatValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" />
+                    <TextView style="@style/StatLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="DIFFICULTY" />
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:layout_margin="4dp" android:orientation="vertical" android:background="@drawable/stat_tile" android:padding="12dp">
+                    <TextView android:id="@+id/valUptime" style="@style/StatValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0s" />
+                    <TextView style="@style/StatLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="UP TIME" />
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:layout_margin="4dp" android:orientation="vertical" android:background="@drawable/stat_tile" android:padding="12dp">
+                    <TextView android:id="@+id/valMaxhash" style="@style/StatValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0.00 MH/s" />
+                    <TextView style="@style/StatLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MAX HASH" />
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:layout_margin="4dp" android:orientation="vertical" android:background="@drawable/stat_tile" android:padding="12dp">
+                    <TextView android:id="@+id/valTemp" style="@style/StatValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" />
+                    <TextView style="@style/StatLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="TEMPERATURE" />
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:layout_margin="4dp" android:orientation="vertical" android:background="@drawable/stat_tile" android:padding="12dp">
+                    <TextView android:id="@+id/valBattery" style="@style/StatValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" />
+                    <TextView style="@style/StatLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="BATTERY" />
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:layout_margin="4dp" android:orientation="vertical" android:background="@drawable/stat_tile" android:padding="12dp">
+                    <TextView android:id="@+id/valCharge" style="@style/StatValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" />
+                    <TextView style="@style/StatLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="CHARGE STATUS" />
+                </LinearLayout>
+            </GridLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Start / Stop pill -->
+    <Button
+        android:id="@+id/startStopButton"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:layout_margin="18dp"
+        android:background="@drawable/pill_bg"
+        android:text="@string/start"
+        android:textColor="#0B0C10"
+        android:textSize="17sp"
+        android:textStyle="bold" />
+</LinearLayout>

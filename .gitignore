@@ -4,6 +4,10 @@
 /build/
 /primo-arm-miner
 
+# Android APK build outputs + staged native binary (do not commit binaries)
+/android/build/
+/android/app/src/main/jniLibs/arm64-v8a/*.so
+
 # Local miner config (contains wallet/worker credentials; see CONFIG_EXAMPLES.md)
 /config.json
 
