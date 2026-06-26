@@ -137,6 +137,11 @@ Takes effect the next time mining starts.
 - [ ] POST_NOTIFICATIONS runtime request (Android 13+) so the notification shows
 - [ ] targetSdk 34 needs a real `foregroundServiceType` justification (currently
       `dataSync` at targetSdk 33)
+- [ ] **First-launch disclaimer dialog**: state what the app does (a cryptocurrency
+      CPU miner) and that it takes a **dev fee** (2% verus / 1% sha256d+scrypt,
+      time-sliced — see `src/dev_fee.cpp`), with a **"Don't show again"** checkbox
+      (persist a flag like `lanApi`; show from `MiningActivity` until dismissed).
+      For honesty + sideload/Play-Protect trust + fee disclosure.
 - [ ] Test on a NON-rooted device (Note 20 Ultra; debug-signed APK ready) —
       install by tap, start via the UI button (the root `pm install`/`am` path was
       just the test harness). Expect background throttling ("N of M CPUs" + uclamp);
