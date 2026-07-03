@@ -78,6 +78,25 @@ ifneq ($(strip $(PRIMO_LDLIBS_OVERRIDE)),)
 PRIMO_LDLIBS = $(PRIMO_LDLIBS_OVERRIDE)
 endif
 
+# --- RandomX (Monero) — vendored reference library (third_party/RandomX) -----
+# Built via its own CMake with ITS OWN conservative flags, NOT ours:
+#  - our -ffast-math would MISCOMPILE it (RandomX floating point is
+#    consensus-critical IEEE-754; wrong rounding = wrong hashes),
+#  - never ARCH=native (armv8.2 LSE = SIGILL on ARMv8.0 — the Termux lesson).
+# Its default aarch64 build is exactly our baseline (-march=armv8-a+crypto,
+# hardware AES selected at runtime). PRIMO_RANDOMX=0 builds the miner without
+# RandomX (drops the cmake build dependency).
+PRIMO_RANDOMX ?= 1
+RANDOMX_DIR = third_party/RandomX
+RANDOMX_BUILD_DIR = $(RANDOMX_DIR)/build
+RANDOMX_LIB = $(RANDOMX_BUILD_DIR)/librandomx.a
+ifneq ($(PRIMO_RANDOMX),0)
+PRIMO_CPPFLAGS += -DPRIMO_RANDOMX=1 -I$(RANDOMX_DIR)/src
+RANDOMX_LINK = $(RANDOMX_LIB)
+else
+RANDOMX_LINK =
+endif
+
 ifneq ($(CC_IS_CLANG),)
 PRIMO_CFLAGS += -mllvm -enable-loop-distribute
 SCRYPT_NOSLP_FLAG = -fno-slp-vectorize
@@ -134,6 +153,10 @@ SOURCES_CPP = \
 	src/algorithm/verus.cpp \
 	src/utils/log.cpp
 
+ifneq ($(PRIMO_RANDOMX),0)
+SOURCES_CPP += src/algorithm/randomx_algo.cpp
+endif
+
 SOURCES_ASM = \
 	src/algorithm/sha256_ce_asm.S \
 	src/algorithm/scrypt_blockmix_asm.S
@@ -146,11 +169,23 @@ TARGET = primo-arm-miner
 
 all: $(TARGET)
 
-$(TARGET): $(OBJECTS)
+$(TARGET): $(OBJECTS) $(RANDOMX_LINK)
 	@echo "Linking $(TARGET)..."
-	$(CXX) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(TARGET)
+	$(CXX) $(OBJECTS) $(RANDOMX_LINK) $(LDFLAGS) $(LDLIBS) -o $(TARGET)
 	@echo "Build complete!"
 	@ls -lh $(TARGET)
+
+# One-time cmake build of the vendored library (see PRIMO_RANDOMX notes above).
+# Not removed by `clean` — `make randomx-clean` rebuilds it from scratch.
+$(RANDOMX_LIB):
+	@echo "Building vendored RandomX library (one-time)..."
+	cmake -S $(RANDOMX_DIR) -B $(RANDOMX_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_C_COMPILER=$(CC) -DCMAKE_CXX_COMPILER=$(CXX) >/dev/null
+	cmake --build $(RANDOMX_BUILD_DIR) --target randomx -j $(shell nproc 2>/dev/null || echo 4)
+
+.PHONY: randomx-clean
+randomx-clean:
+	rm -rf $(RANDOMX_BUILD_DIR)
 
 # Scrypt needs -fno-slp-vectorize: the in-place XOR loops get SLP-vectorized
 # to NEON, causing NEON→scalar store forwarding penalty when scalar Salsa reads B

@@ -15,3 +15,7 @@ release-compliance notes.
 
 Third-party copyright and license notices that remain in specific files,
 such as src/algorithm/scrypt.h, must be preserved in redistribution.
+
+The RandomX hashing library (third_party/RandomX/, BSD 3-Clause,
+Copyright (c) tevador and The Monero Project) is vendored unmodified;
+its LICENSE file must be preserved in redistribution.

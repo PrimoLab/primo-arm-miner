@@ -409,11 +409,14 @@ int scanhash_dispatch(int thr_id, struct work *work, uint32_t max_hashes, unsign
 bool verus_init_runtime(void);
 void *miner_thread(void *userdata);
 
-// Algorithm selection
+// Algorithm selection. ALGO_RANDOMX is always in the enum (keeps table sizes
+// stable) but is usable only when built with PRIMO_RANDOMX=1 (the default;
+// see randomx_algo.h and the Makefile third_party/RandomX notes).
 typedef enum {
     ALGO_VERUS = 0,
     ALGO_SHA256D,    // Bitcoin
     ALGO_SCRYPT,     // Litecoin
+    ALGO_RANDOMX,    // Monero (rx/0)
     ALGO_COUNT
 } algo_t;
 

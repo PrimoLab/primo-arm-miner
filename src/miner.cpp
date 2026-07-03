@@ -23,6 +23,9 @@
 #include "cpu_features.h"
 #include "dev_fee.h"
 #include "miner.h"
+#ifdef PRIMO_RANDOMX
+#include "randomx_algo.h"
+#endif
 #include "scrypt_neon.h"
 #include "stratum_internal.h"
 
@@ -989,6 +992,12 @@ bool miner_init_algorithm_runtime(bool *algorithm_ready_out)
 
         applog(LOG_INFO, "Scrypt self-test passed");
         algorithm_ready = true;
+#ifdef PRIMO_RANDOMX
+    } else if (opt_algo == ALGO_RANDOMX) {
+        /* Runs the reference-vector self-test internally; refuses to mine
+         * on mismatch (broken build / JIT / fast-math contamination). */
+        algorithm_ready = randomx_init_runtime(opt_n_threads) != 0;
+#endif
     } else {
         applog(LOG_ERR, "No init handler for algorithm %d", (int)opt_algo);
     }
@@ -1006,6 +1015,10 @@ void miner_cleanup_algorithm_runtime(bool algorithm_ready)
 
     if (opt_algo == ALGO_SCRYPT)
         scrypt_cleanup();
+#ifdef PRIMO_RANDOMX
+    if (opt_algo == ALGO_RANDOMX)
+        randomx_cleanup_runtime();
+#endif
 }
 
 void miner_get_api_snapshot(struct miner_api_snapshot *snapshot)
@@ -1095,6 +1108,10 @@ int scanhash_dispatch(int thr_id, struct work *work, uint32_t max_hashes, unsign
             return scanhash_sha256d(thr_id, work, max_hashes, hashes_done);
         case ALGO_SCRYPT:
             return scanhash_scrypt(thr_id, work, max_hashes, hashes_done);
+#ifdef PRIMO_RANDOMX
+        case ALGO_RANDOMX:
+            return scanhash_randomx(thr_id, work, max_hashes, hashes_done);
+#endif
         default:
             applog(LOG_ERR, "Unsupported algorithm id %d in scanhash_dispatch", (int)opt_algo);
             miner_request_abort();
@@ -1207,7 +1224,14 @@ void *miner_thread(void *userdata)
         // Nonce pointer - different offset for different algorithms
         // Verus: offset 30 (EQNONCE_OFFSET)
         // SHA256d/Scrypt: offset 19 (standard 80-byte header, nonce at bytes 76-79)
+        // RandomX: the blob nonce is at BYTE 39 (unaligned); the per-thread
+        //   counter lives in word RANDOMX_NONCE_WORD, clear of any blob bytes,
+        //   and scanhash_randomx patches the blob itself (see randomx_algo.h).
         int nonce_offset = (opt_algo == ALGO_VERUS) ? 30 : 19;
+#ifdef PRIMO_RANDOMX
+        if (opt_algo == ALGO_RANDOMX)
+            nonce_offset = RANDOMX_NONCE_WORD;
+#endif
         uint32_t *nonce_word = &work.data[nonce_offset];
 
         // Handle nonce progression:
@@ -1261,7 +1285,20 @@ void *miner_thread(void *userdata)
         // scales to whichever speed the core actually runs at (A76 ≈ 5.5M, A55 ≈
         // 2.6M), keeping display lag consistently under ~5 seconds.
         uint32_t chunk_size;
-        if (chunk_hashrate > 100000.0) {
+        if (opt_algo == ALGO_RANDOMX) {
+            // RandomX runs ~10-200 H/s per thread — four to five orders of
+            // magnitude below the fast-hash algos, so the chunk bounds scale
+            // down accordingly (same ~5s display-latency target). The scan
+            // loop also checks restart/abort every hash, so a generous chunk
+            // costs nothing in job-switch latency.
+            if (chunk_hashrate > 1.0) {
+                chunk_size = (uint32_t)(chunk_hashrate * 5.0);
+                if (chunk_size > 4096) chunk_size = 4096;
+                if (chunk_size < 16)   chunk_size = 16;
+            } else {
+                chunk_size = 256;  // ~3s on a big core, ~15s worst-case light mode
+            }
+        } else if (chunk_hashrate > 100000.0) {
             chunk_size = (uint32_t)(chunk_hashrate * 5.0);
             if (chunk_size > 0x1000000) chunk_size = 0x1000000;  // cap: 16M
             if (chunk_size < 0x100000)  chunk_size = 0x100000;   // min:  1M

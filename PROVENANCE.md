@@ -47,6 +47,15 @@ that should be disclosed when distributing releases.
   - Retains Colin Percival copyright and redistribution terms and must be
     preserved in redistribution.
 
+- `third_party/RandomX/`
+  - Vendored copy of the RandomX reference implementation
+    (https://github.com/tevador/RandomX) at upstream commit `1e9d4b2`
+    (2026-05-24), used unmodified as the RandomX hashing library.
+  - BSD 3-Clause license (tevador and The Monero Project); the license text
+    is retained at `third_party/RandomX/LICENSE` and must be preserved in
+    redistribution. BSD-3 is compatible with this project's GPL-3.0-or-later
+    distribution.
+
 ## Compliance note
 
 The files listed above were substantially rewritten, but the repository was

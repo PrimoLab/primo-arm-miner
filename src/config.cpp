@@ -51,7 +51,8 @@ algo_t opt_algo = ALGO_VERUS;
 const char *algo_names[ALGO_COUNT] = {
     "verus",
     "sha256d",
-    "scrypt"
+    "scrypt",
+    "randomx"
 };
 
 struct pool_infos pools[MAX_POOLS];
@@ -516,6 +517,17 @@ static bool parse_algorithm_name(const char *name, algo_t *algo_out)
         strcasecmp(name, "litecoin") == 0) {
         *algo_out = ALGO_SCRYPT;
         return true;
+    }
+    if (strcasecmp(name, "randomx") == 0 || strcasecmp(name, "rx") == 0 ||
+        strcasecmp(name, "rx/0") == 0 || strcasecmp(name, "xmr") == 0 ||
+        strcasecmp(name, "monero") == 0) {
+#ifdef PRIMO_RANDOMX
+        *algo_out = ALGO_RANDOMX;
+        return true;
+#else
+        applog(LOG_ERR, "randomx support was not built in (PRIMO_RANDOMX=0)");
+        return false;
+#endif
     }
     return false;
 }

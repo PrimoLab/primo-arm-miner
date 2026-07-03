@@ -15,6 +15,9 @@
 
 #include "miner.h"
 #include "cpu_features.h"
+#ifdef PRIMO_RANDOMX
+#include "randomx_algo.h"
+#endif
 
 static volatile sig_atomic_t benchmark_shutdown_signal = 0;
 
@@ -75,6 +78,12 @@ static void init_benchmark_work(struct work *work, int thr_id)
         if (solution)
             solution[0] = 7;
         work->data[30] = thr_id * 0x10000000u;
+#ifdef PRIMO_RANDOMX
+    } else if (opt_algo == ALGO_RANDOMX) {
+        // words 0-18 above are the synthetic 76-byte blob; the nonce counter
+        // word sits outside it (see randomx_algo.h).
+        work->data[RANDOMX_NONCE_WORD] = thr_id * 0x10000000u;
+#endif
     } else {
         work->data[19] = thr_id * 0x10000000u;
     }
@@ -213,6 +222,10 @@ static void *benchmark_thread(void *userdata)
     uint32_t nonce_seed = thr_id * 0x10000000u;
     uint32_t nonce_start = nonce_seed;
     int nonce_offset = (opt_algo == ALGO_VERUS) ? 30 : 19;
+#ifdef PRIMO_RANDOMX
+    if (opt_algo == ALGO_RANDOMX)
+        nonce_offset = RANDOMX_NONCE_WORD;
+#endif
 
     struct timeval tv_start, tv_now;
     gettimeofday(&tv_start, NULL);
@@ -227,8 +240,10 @@ static void *benchmark_thread(void *userdata)
 
         work.data[nonce_offset] = nonce_start;
 
-        // Mine a fixed count of nonces so the per-thread benchmark loop stays stable.
-        uint32_t batch_size = 500000;
+        // Mine a fixed count of nonces so the per-thread benchmark loop stays
+        // stable. RandomX is 4-5 orders of magnitude slower per hash, so its
+        // batch shrinks to keep the hashrate display responsive (~5s).
+        uint32_t batch_size = (opt_algo == ALGO_RANDOMX) ? 500 : 500000;
         scanhash_dispatch(thr_id, &work, batch_size, &hashes_done);
 
         nonce_start = work.data[nonce_offset];
