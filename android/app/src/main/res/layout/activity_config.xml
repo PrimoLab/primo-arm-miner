@@ -13,13 +13,11 @@
         android:paddingTop="8dp"
         android:paddingBottom="28dp">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="Pool &amp; worker settings for the selected algorithm."
-            android:textColor="@color/textdim"
-            android:textSize="13sp" />
+        <!-- ============ MINER ============ -->
+        <TextView style="@style/SectionHeader"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="MINER" />
 
         <TextView style="@style/FieldLabel"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -32,37 +30,58 @@
 
         <TextView style="@style/FieldLabel"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="POOL URL" />
-        <EditText android:id="@+id/urlField" style="@style/FieldInput"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:inputType="textUri"
-            android:hint="stratum+tcp://host:port" />
-
-        <TextView style="@style/FieldLabel"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="WALLET / USER.WORKER" />
-        <EditText android:id="@+id/userField" style="@style/FieldInput"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:inputType="text"
-            android:hint="wallet.worker" />
-
-        <TextView style="@style/FieldLabel"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="PASSWORD" />
-        <EditText android:id="@+id/passField" style="@style/FieldInput"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:inputType="text" android:text="x" />
-
-        <TextView style="@style/FieldLabel"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="THREADS" />
         <EditText android:id="@+id/threadsField" style="@style/FieldInput"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:inputType="number" android:text="4" />
+        <TextView android:id="@+id/threadsHint"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:layout_marginStart="2dp"
+            android:text=""
+            android:textColor="@color/textdim"
+            android:textSize="12sp" />
+
+        <!-- ============ POOLS ============ -->
+        <TextView style="@style/SectionHeader"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="POOLS" />
+        <TextView
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="The first pool is primary. Extra pools are failovers, tried in order when the pool above them is unreachable."
+            android:textColor="@color/textdim"
+            android:textSize="12sp" />
+
+        <!-- Pool cards are inflated from pool_card.xml at runtime. -->
+        <LinearLayout android:id="@+id/poolContainer"
+            android:orientation="vertical"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <TextView android:id="@+id/addPoolButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/field_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:minHeight="48dp"
+            android:text="+  ADD FAILOVER POOL"
+            android:textColor="@color/accent"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.04" />
+
+        <!-- ============ MONITORING ============ -->
+        <TextView style="@style/SectionHeader"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="MONITORING" />
 
         <CheckBox android:id="@+id/lanApiCheck"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="8dp"
             android:text="Allow network monitoring"
             android:textColor="@color/text"
             android:textSize="15sp" />

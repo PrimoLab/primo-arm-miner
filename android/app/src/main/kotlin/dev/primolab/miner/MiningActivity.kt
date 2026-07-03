@@ -34,6 +34,7 @@ class MiningActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var mining = false
     private var maxKhs = 0.0
+    private var startTapTime = 0L
 
     private lateinit var hashrate: TextView
     private lateinit var algo: TextView
@@ -57,7 +58,10 @@ class MiningActivity : Activity() {
                 val s = ApiClient.summary()
                 val t = ApiClient.threads()
                 val hw = ApiClient.hwinfo()
-                runOnUiThread { render(s, t, hw) }
+                // "pool" tells us the LIVE pool — matters with failover, where
+                // the miner may have switched away from the primary.
+                val p = ApiClient.query("pool")
+                runOnUiThread { render(s, t, hw, p) }
             }
             handler.postDelayed(this, 2000)
         }
@@ -108,6 +112,7 @@ class MiningActivity : Activity() {
         else startService(intent)
         mining = true
         maxKhs = 0.0
+        startTapTime = System.currentTimeMillis()
         setPill(true)
         // Focused, on-screen app = top-app = all cores + uclamp boost (no root).
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -129,26 +134,56 @@ class MiningActivity : Activity() {
             ColorStateList.valueOf(if (active) Color.parseColor("#FF5566") else ACCENT)
     }
 
-    private fun render(s: Map<String, String>?, t: List<Map<String, String>>?, hw: Map<String, String>?) {
+    private fun render(
+        s: Map<String, String>?, t: List<Map<String, String>>?,
+        hw: Map<String, String>?, livePool: Map<String, String>?,
+    ) {
         renderBattery()
-        if (s == null) {
+        // Trust the SERVICE state, not API reachability: a crashed miner must
+        // read as "exited", and one last successful poll right after Stop must
+        // not flip the pill back to mining. Grace window: startForegroundService
+        // is async, so briefly keep "starting" before the service reports in.
+        val starting = mining && !MinerService.running &&
+            System.currentTimeMillis() - startTapTime < 5000
+        if (starting) { setStatus("STARTING…", WARN); return }
+        if (!MinerService.running) {
+            mining = false
+            setPill(false)
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             hashrate.text = "0.00 MH/s"
             // Show the configured algo/pool so the hero isn't blank while idle.
             val cfgAlgo = ProfileStore.activeAlgo(this)
             algo.text = cfgAlgo.uppercase()
-            pool.text = ProfileStore.profile(this, cfgAlgo).url.substringAfter("://").ifBlank { "—" }
-            if (mining) setStatus("CONNECTING…", WARN)
+            pool.text = ProfileStore.profile(this, cfgAlgo).pools.first()
+                .url.substringAfter("://").ifBlank { "—" }
+            val note = MinerService.exitNote
+            if (note != null) setStatus("STOPPED: ${note.uppercase()}", DANGER)
             else setStatus(getString(R.string.status_idle), DIM)
+            threadWrap.removeAllViews()
+            threadWrap.visibility = View.GONE
             return
         }
         mining = true; setPill(true)
+        if (s == null) {
+            hashrate.text = "0.00 MH/s"
+            val cfgAlgo = ProfileStore.activeAlgo(this)
+            algo.text = cfgAlgo.uppercase()
+            pool.text = ProfileStore.profile(this, cfgAlgo).pools.first()
+                .url.substringAfter("://").ifBlank { "—" }
+            setStatus("CONNECTING…", WARN)
+            return
+        }
 
         val khs = s["KHS"]?.toDoubleOrNull() ?: 0.0
         if (khs > maxKhs) maxKhs = khs
         hashrate.text = fmtRate(khs)
         algo.text = s["ALGO"]?.uppercase() ?: "—"
-        pool.text = ProfileStore.profile(this, ProfileStore.activeAlgo(this))
-            .url.substringAfter("://").ifBlank { "—" }
+        // Live pool from the API (name = hostname written by ProfileStore);
+        // fall back to the configured primary if the pool query failed.
+        pool.text = livePool?.get("POOL")?.ifBlank { null }
+            ?: livePool?.get("URL")?.substringAfter("://")?.ifBlank { null }
+            ?: ProfileStore.profile(this, ProfileStore.activeAlgo(this)).pools.first()
+                .url.substringAfter("://").ifBlank { "—" }
         if (khs > 0.0) setStatus("MINING", ACCENT) else setStatus("CONNECTING…", WARN)
 
         setVal(R.id.valAccepted, s["ACC"] ?: "0")

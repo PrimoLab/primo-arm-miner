@@ -2,6 +2,7 @@ package dev.primolab.miner
 
 import android.app.Activity
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.MenuItem
 import android.view.View
 import android.widget.AdapterView
@@ -9,22 +10,27 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Spinner
+import android.widget.TextView
 import android.widget.Toast
 
 /**
- * Page 2 — Config. Algorithm is a dropdown; each algo keeps its own
- * pool/user/pass/threads (ProfileStore), so switching algos repopulates that
- * algo's saved values. SAVE flattens the active algo into config.json for the
- * native miner — which is unchanged and still reads a single flat config.
+ * Page 2 — Config. Sectioned form: MINER (algorithm + threads), POOLS
+ * (primary + up to MAX_POOLS-1 failovers as removable cards, in the miner's
+ * failover priority order), MONITORING (LAN API toggle).
+ *
+ * Algorithm is a dropdown; each algo keeps its own pools/threads
+ * (ProfileStore), so switching algos repopulates that algo's saved values.
+ * SAVE flattens the active algo into config.json for the native miner —
+ * which is unchanged and reads the ccminer-compatible pools[] format.
  */
 class ConfigActivity : Activity() {
 
     private lateinit var algoSpinner: Spinner
-    private lateinit var url: EditText
-    private lateinit var user: EditText
-    private lateinit var pass: EditText
     private lateinit var threads: EditText
+    private lateinit var poolContainer: LinearLayout
+    private lateinit var addPool: TextView
     private lateinit var lanApi: CheckBox
 
     private var currentAlgo = ProfileStore.ALGOS[0]
@@ -35,12 +41,14 @@ class ConfigActivity : Activity() {
         setContentView(R.layout.activity_config)
         actionBar?.setDisplayHomeAsUpEnabled(true)
         algoSpinner = findViewById(R.id.algoSpinner)
-        url = findViewById(R.id.urlField)
-        user = findViewById(R.id.userField)
-        pass = findViewById(R.id.passField)
         threads = findViewById(R.id.threadsField)
+        poolContainer = findViewById(R.id.poolContainer)
+        addPool = findViewById(R.id.addPoolButton)
         lanApi = findViewById(R.id.lanApiCheck)
         lanApi.isChecked = ProfileStore.lanApi(this)   // app-wide, not per-algo
+
+        val cores = Runtime.getRuntime().availableProcessors()
+        findViewById<TextView>(R.id.threadsHint).text = "This device reports $cores CPU cores."
 
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, ProfileStore.ALGOS)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -64,6 +72,12 @@ class ConfigActivity : Activity() {
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
 
+        addPool.setOnClickListener {
+            if (poolContainer.childCount < ProfileStore.MAX_POOLS) {
+                addPoolCard(ProfileStore.Pool(pass = ""))
+                rebindPoolCards()
+            }
+        }
         findViewById<Button>(R.id.saveButton).setOnClickListener { save() }
     }
 
@@ -74,23 +88,71 @@ class ConfigActivity : Activity() {
 
     private fun loadFields(algo: String) {
         val p = ProfileStore.profile(this, algo)
-        url.setText(p.url)
-        user.setText(p.user)
-        pass.setText(p.pass)
         threads.setText(p.threads.toString())
+        poolContainer.removeAllViews()
+        p.pools.take(ProfileStore.MAX_POOLS).forEach { addPoolCard(it) }
+        rebindPoolCards()
     }
 
-    private fun readFields() = ProfileStore.Profile(
-        url = url.text.toString().trim(),
-        user = user.text.toString().trim(),
-        pass = pass.text.toString().trim(),
-        threads = threads.text.toString().trim().toIntOrNull() ?: 4,
-    )
+    private fun addPoolCard(pool: ProfileStore.Pool) {
+        val card = LayoutInflater.from(this).inflate(R.layout.pool_card, poolContainer, false)
+        card.findViewById<EditText>(R.id.poolUrl).setText(pool.url)
+        card.findViewById<EditText>(R.id.poolUser).setText(pool.user)
+        card.findViewById<EditText>(R.id.poolPass).setText(pool.pass)
+        card.findViewById<TextView>(R.id.poolRemove).setOnClickListener {
+            poolContainer.removeView(card)
+            rebindPoolCards()
+        }
+        poolContainer.addView(card)
+    }
+
+    /** Re-title cards after add/remove so numbering stays consecutive; the
+     *  primary card can't be removed. Failover fields hint at inheritance. */
+    private fun rebindPoolCards() {
+        for (i in 0 until poolContainer.childCount) {
+            val card = poolContainer.getChildAt(i)
+            card.findViewById<TextView>(R.id.poolTitle).text =
+                if (i == 0) "PRIMARY POOL" else "FAILOVER $i"
+            card.findViewById<TextView>(R.id.poolRemove).visibility =
+                if (i == 0) View.GONE else View.VISIBLE
+            val hint = if (i == 0) "wallet.worker" else "blank = same as primary"
+            card.findViewById<EditText>(R.id.poolUser).hint = hint
+            card.findViewById<EditText>(R.id.poolPass).hint =
+                if (i == 0) "x" else "blank = same as primary"
+        }
+        addPool.visibility =
+            if (poolContainer.childCount >= ProfileStore.MAX_POOLS) View.GONE else View.VISIBLE
+    }
+
+    private fun readFields(): ProfileStore.Profile {
+        val pools = mutableListOf<ProfileStore.Pool>()
+        for (i in 0 until poolContainer.childCount) {
+            val card = poolContainer.getChildAt(i)
+            pools.add(ProfileStore.Pool(
+                url = card.findViewById<EditText>(R.id.poolUrl).text.toString().trim(),
+                user = card.findViewById<EditText>(R.id.poolUser).text.toString().trim(),
+                pass = card.findViewById<EditText>(R.id.poolPass).text.toString().trim(),
+            ))
+        }
+        if (pools.isEmpty()) pools.add(ProfileStore.Pool())
+        return ProfileStore.Profile(
+            pools = pools,
+            threads = threads.text.toString().trim().toIntOrNull() ?: 4,
+        )
+    }
 
     private fun save() {
+        val p = readFields()
+        if (p.pools.first().url.isBlank()) {
+            Toast.makeText(this, "Primary pool URL is required", Toast.LENGTH_LONG).show()
+            return
+        }
         ProfileStore.setLanApi(this, lanApi.isChecked)
-        ProfileStore.commitActive(this, currentAlgo, readFields())
-        Toast.makeText(this, "Saved ($currentAlgo)", Toast.LENGTH_SHORT).show()
+        ProfileStore.commitActive(this, currentAlgo, p)
+        val extra = p.pools.drop(1).count { it.url.isNotBlank() }
+        val msg = if (extra > 0) "Saved ($currentAlgo, $extra failover pool${if (extra > 1) "s" else ""})"
+                  else "Saved ($currentAlgo)"
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         finish()
     }
 }

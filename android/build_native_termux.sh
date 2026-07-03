@@ -27,14 +27,28 @@ if [ ! -x "$W/clang++" ]; then
 fi
 
 # 3. compile against the static-dep headers (the make link step is a throwaway —
-#    it links dynamically; we relink static next)
+#    it links dynamically and may fail; we relink static next). A nonzero make
+#    is tolerated ONLY for the link step: verify below that every source
+#    actually produced its object, so a real compile error fails loudly here
+#    instead of surfacing as a confusing relink failure.
 echo "==> compiling miner objects"
 make clean >/dev/null 2>&1 || true
 make -j"$(nproc)" \
   CC="$W/clang" CXX="$W/clang++" PRIMO_LINKER=lld \
   PRIMO_HUGETLBFS=0 PRIMO_A53_ERRATA=0 \
   PRIMO_EXTRA_CFLAGS="-I$SDEPS/include -DCURL_STATICLIB" \
-  PRIMO_EXTRA_CXXFLAGS="-I$SDEPS/include -DCURL_STATICLIB" || true
+  PRIMO_EXTRA_CXXFLAGS="-I$SDEPS/include -DCURL_STATICLIB" \
+  || echo "==> make exited nonzero (OK if only the throwaway link failed) — verifying objects"
+missing=0
+for s in src/*.cpp src/utils/*.cpp src/algorithm/*.c src/algorithm/*.S; do
+  [ -e "$s" ] || continue
+  o="${s%.*}.o"
+  if [ ! -f "$o" ]; then
+    echo "ERROR: compile failed — missing $o" >&2
+    missing=1
+  fi
+done
+[ "$missing" -eq 0 ] || exit 1
 
 # 4. relink explicitly against the static archives. (The Makefile's
 #    PRIMO_LDLIBS_OVERRIDE didn't survive being passed over SSH; an explicit

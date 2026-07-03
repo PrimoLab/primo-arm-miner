@@ -25,6 +25,14 @@
     </style>
 
     <!-- Config form -->
+    <style name="SectionHeader">
+        <item name="android:textColor">@color/accent</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.08</item>
+        <item name="android:layout_marginTop">28dp</item>
+    </style>
+
     <style name="FieldLabel">
         <item name="android:textColor">@color/textdim</item>
         <item name="android:textSize">12sp</item>

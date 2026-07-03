@@ -32,16 +32,32 @@ class MinerService : Service() {
 
         /** Path the miner is launched with; ConfigActivity writes here. */
         fun configFile(ctx: Context): File = File(ctx.filesDir, CONFIG_FILENAME)
+
+        /**
+         * Service liveness + last abnormal exit, read by MiningActivity (same
+         * process) so the dashboard reflects the real service state instead of
+         * inferring it from API reachability — a dead miner is reported as
+         * "exited", not an eternal "connecting".
+         */
+        @Volatile var running = false
+            private set
+        @Volatile var exitNote: String? = null
     }
 
     private var process: Process? = null
     private var wakeLock: PowerManager.WakeLock? = null
+
+    /** Set before we kill the subprocess ourselves, so the exit watcher can
+     *  tell a deliberate stop from a crash. */
+    @Volatile private var stopping = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIF_ID, buildNotification("Mining…"))
         acquireWakeLock()
+        running = true
+        exitNote = null
         // Must run off the main thread: it resolves DNS (see prepareLaunchConfig).
         Thread { startMiner() }.apply { isDaemon = true }.start()
         return START_STICKY
@@ -52,12 +68,14 @@ class MinerService : Service() {
         val binary = File(applicationInfo.nativeLibraryDir, "libprimo.so")
         if (!binary.exists()) {
             Log.e(TAG, "miner binary missing: ${binary.absolutePath}")
+            exitNote = "miner binary missing"
             stopSelf()
             return
         }
         val config = configFile(this)
         if (!config.exists()) {
             Log.e(TAG, "config missing — open Configure first")
+            exitNote = "no config — open Configure first"
             stopSelf()
             return
         }
@@ -76,7 +94,20 @@ class MinerService : Service() {
             // Any bundled shared libs (e.g. libc++_shared.so) ship in the same
             // nativeLibraryDir as the binary; point the loader at them.
             pb.environment()["LD_LIBRARY_PATH"] = binary.parent
-            process = pb.start()
+            val proc = pb.start()
+            process = proc
+
+            // Exit watcher: if the miner dies on its own (bad config, pool
+            // auth failure, native crash), surface it and stop the service —
+            // otherwise the UI would sit on "connecting…" forever.
+            Thread {
+                val code = try { proc.waitFor() } catch (_: InterruptedException) { -1 }
+                if (!stopping) {
+                    Log.e(TAG, "miner exited unexpectedly (code $code)")
+                    exitNote = "miner exited (code $code)"
+                    stopSelf()
+                }
+            }.apply { isDaemon = true }.start()
 
             // Drain output to a log file so the pipe never blocks the miner.
             // Must never throw out of the thread — a logging failure must not
@@ -105,6 +136,7 @@ class MinerService : Service() {
             }.apply { isDaemon = true }.start()
         } catch (e: Exception) {
             Log.e(TAG, "failed to launch miner", e)
+            exitNote = "failed to launch miner"
             stopSelf()
         }
     }
@@ -121,29 +153,13 @@ class MinerService : Service() {
         val out = File(filesDir, "config.runtime.json")
         try {
             val json = JSONObject(src.readText())
-            val url = json.optString("url")
-            // e.g. stratum+tcp://host:port  ->  capture scheme / host / rest
-            val m = Regex("^([a-z0-9]+(?:\\+[a-z0-9]+)?://)([^:/]+)(.*)$", RegexOption.IGNORE_CASE)
-                .find(url)
-            if (m != null) {
-                val (scheme, host, rest) = m.destructured
-                if (!host.matches(Regex("^[0-9.]+$"))) {  // skip if already an IP
-                    try {
-                        // Prefer IPv4: it needs no URL bracketing and avoids pools
-                        // / sandboxes with flaky IPv6 routing. Fall back to a
-                        // bracketed IPv6 literal ([addr]) so the host:port colon
-                        // stays unambiguous to the miner's URL parser.
-                        val addrs = InetAddress.getAllByName(host)
-                        val v4 = addrs.firstOrNull { it is java.net.Inet4Address }
-                        val ip = when {
-                            v4 != null -> v4.hostAddress
-                            else -> "[${addrs.first().hostAddress}]"
-                        }
-                        json.put("url", "$scheme$ip$rest")
-                        Log.i(TAG, "resolved $host -> $ip")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "DNS resolve failed for $host: ${e.message}")
-                    }
+            if (json.has("url")) json.put("url", resolveUrl(json.optString("url")))
+            // Failover pools each carry their own url; resolve them all so a
+            // mid-session pool switch doesn't hit the getaddrinfo sandbox wall.
+            json.optJSONArray("pools")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val p = arr.optJSONObject(i) ?: continue
+                    if (p.has("url")) p.put("url", resolveUrl(p.optString("url")))
                 }
             }
             out.writeText(json.toString())
@@ -154,9 +170,38 @@ class MinerService : Service() {
         return out
     }
 
+    /** Rewrite one stratum URL's host to a resolved IP; on any failure the
+     *  original URL is returned unchanged. */
+    private fun resolveUrl(url: String): String {
+        // e.g. stratum+tcp://host:port  ->  capture scheme / host / rest
+        val m = Regex("^([a-z0-9]+(?:\\+[a-z0-9]+)?://)([^:/]+)(.*)$", RegexOption.IGNORE_CASE)
+            .find(url) ?: return url
+        val (scheme, host, rest) = m.destructured
+        if (host.matches(Regex("^[0-9.]+$"))) return url  // already an IPv4 literal
+        return try {
+            // Prefer IPv4: it needs no URL bracketing and avoids pools
+            // / sandboxes with flaky IPv6 routing. Fall back to a
+            // bracketed IPv6 literal ([addr]) so the host:port colon
+            // stays unambiguous to the miner's URL parser.
+            val addrs = InetAddress.getAllByName(host)
+            val v4 = addrs.firstOrNull { it is java.net.Inet4Address }
+            val ip = when {
+                v4 != null -> v4.hostAddress
+                else -> "[${addrs.first().hostAddress}]"
+            }
+            Log.i(TAG, "resolved $host -> $ip")
+            "$scheme$ip$rest"
+        } catch (e: Exception) {
+            Log.w(TAG, "DNS resolve failed for $host: ${e.message}")
+            url
+        }
+    }
+
     override fun onDestroy() {
+        stopping = true      // before destroy(), so the exit watcher stays quiet
         process?.destroy()
         process = null
+        running = false
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         super.onDestroy()

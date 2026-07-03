@@ -88,6 +88,15 @@ name**:
 The miner just submits scrypt shares; the pool splits the reward across LTC and
 DOGE. So "set it up correctly on the pool side, mine normally" is the whole flow.
 
+### Failover pools
+
+Each algorithm can have a **primary pool plus up to 3 failovers** (Config →
+POOLS → "+ ADD FAILOVER POOL"). They are tried in card order: the miner starts
+on the first reachable pool and fails over down the list when a pool is
+unreachable or drops. Failover cards may leave **wallet/password blank to reuse
+the primary's** (set them only if the backup pool needs different credentials).
+The dashboard's pool line shows the pool you are *currently* mining on.
+
 ### Network monitoring (API on the LAN)
 
 The dashboard always reads the miner's read-only status API on `127.0.0.1:4068`.
@@ -111,11 +120,27 @@ Takes effect the next time mining starts.
 - [x] APK installs; foreground service execs the binary from `nativeLibraryDir`.
 - [x] **Self-contained native binary** via static curl+jansson + bundled libc++
       (`build_native_termux.sh`). NEEDED = libm/libc++/libdl/libc only.
-- [x] **DNS** resolved JVM-side, miner launched with pool IP.
-- [x] Config UX: algorithm is a **dropdown**; each algo keeps its own
-      pool/user/pass/threads (`profiles.json`) so switching algos repopulates that
-      algo's data. Existing config.json auto-migrated. Miner unchanged (still reads
-      one flat config.json, written from the active algo on SAVE).
+- [x] **DNS** resolved JVM-side, miner launched with pool IP (every `pools[]`
+      entry is resolved, not just the primary, so failover works in the sandbox).
+- [x] Config UX: sectioned form (MINER / POOLS / MONITORING); algorithm is a
+      **dropdown**; each algo keeps its own pools/threads (`profiles.json`) so
+      switching algos repopulates that algo's data. Existing config.json (and v1
+      single-pool profiles) auto-migrated. Miner unchanged — SAVE writes the
+      ccminer-compatible `pools[]` config.json from the active algo.
+- [x] **Pool failover**: primary + up to 3 failover pools per algo as removable
+      cards, priority order = card order, riding the miner's existing failover.
+      Blank failover user/pass inherit the primary's (top-level inheritance).
+      Each pool's `name` is set to its hostname so the API/dashboard show a
+      readable label even after the DNS→IP rewrite; the dashboard's pool line is
+      the LIVE pool from the API (`pool` command), so a mid-run failover is
+      visible. Validated on this box: dead primary → failover → 17/17 accepted.
+- [x] **Miner crash detection**: `MinerService` watches the subprocess exit and
+      stops the service with a note (`exitNote`); the dashboard shows
+      "STOPPED: MINER EXITED (CODE N)" instead of an eternal "connecting…".
+      The pill/status are driven by real service state (`MinerService.running`),
+      which also fixed the brief post-Stop pill flicker.
+- [x] Save validation: blank primary pool URL is rejected with a toast instead
+      of silently writing a config the miner can't use.
 - [x] **Dark dashboard home page** (custom theme, teal accent): big hashrate,
       algo/pool, live per-thread chips (from `threads`), stat grid (accepted/
       rejected/difficulty/uptime/max-hash/temp/battery/charge), Start/Stop pill.
