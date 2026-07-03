@@ -22,6 +22,7 @@ enum stratum_request_id {
     STRATUM_REQUEST_SUBSCRIBE = 1,
     STRATUM_REQUEST_AUTHORIZE = 2,
     STRATUM_REQUEST_EXTRANONCE_SUBSCRIBE = 3,
+    STRATUM_REQUEST_LOGIN = 4,  /* Monero dialect single-call handshake */
 };
 
 static bool stratum_reply_matches_id(json_t *reply, uint32_t expected_id)
@@ -432,3 +433,83 @@ out:
 
     return ret;
 }
+
+#ifdef PRIMO_RANDOMX
+/*
+ * Monero dialect handshake: ONE "login" call replaces subscribe+authorize.
+ * The reply's result carries the pool-assigned session id (echoed on every
+ * submit) and the first job, which is applied through the same path as
+ * later "job" notifications (xmr_stratum_handle_job).
+ */
+bool xmr_stratum_login(struct stratum_ctx *sctx, const char *user, const char *pass)
+{
+    json_t *val = NULL;
+    json_t *params;
+    json_t *algo_arr;
+    json_t *result = NULL;
+    json_t *error = NULL;
+    char *request;
+    bool ret = false;
+    enum stratum_wait_status wait_status;
+
+    params = json_object();
+    algo_arr = json_array();
+    if (!params || !algo_arr) {
+        if (params)
+            json_decref(params);
+        if (algo_arr)
+            json_decref(algo_arr);
+        return false;
+    }
+    json_object_set_new(params, "login", json_string(user ? user : ""));
+    json_object_set_new(params, "pass", json_string(pass && pass[0] ? pass : "x"));
+    json_object_set_new(params, "agent", json_string(USER_AGENT));
+    json_array_append_new(algo_arr, json_string("rx/0"));
+    json_object_set_new(params, "algo", algo_arr);
+
+    request = xmr_build_request_line("login", STRATUM_REQUEST_LOGIN, params);
+    if (!request)
+        return false;
+
+    wait_status = stratum_send_request_and_wait(sctx, request, STRATUM_REQUEST_LOGIN, 30, 0,
+                                                &val, true);
+    free(request);
+
+    if (wait_status == STRATUM_WAIT_TIMEOUT)
+        applog(LOG_ERR, "RandomX login timed out");
+    if (wait_status != STRATUM_WAIT_OK)
+        goto out;
+
+    if (stratum_reply_has_rpc_error(val, false, &result, &error)) {
+        stratum_log_rpc_error(error);
+        goto out;
+    }
+
+    {
+        const char *rpc_session_id = json_string_value(json_object_get(result, "id"));
+        json_t *job = json_object_get(result, "job");
+
+        if (!rpc_session_id || !rpc_session_id[0]) {
+            applog(LOG_ERR, "RandomX login: no session id in reply");
+            goto out;
+        }
+        stratum_store_session_id(sctx, rpc_session_id);
+        stratum_set_authenticated(sctx, true);
+        applog(LOG_INFO, "RandomX login OK for %s", user ? user : "");
+
+        /* First job rides on the login reply. NOTE: this triggers the initial
+         * RandomX dataset build (~14 s on 8 cores) before work is published. */
+        if (json_is_object(job) && !xmr_stratum_handle_job(sctx, job)) {
+            applog(LOG_ERR, "RandomX login: could not apply initial job");
+            goto out;
+        }
+    }
+    ret = true;
+
+out:
+    if (val)
+        json_decref(val);
+
+    return ret;
+}
+#endif /* PRIMO_RANDOMX */

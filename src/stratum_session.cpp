@@ -210,6 +210,20 @@ bool stratum_open_pool_connection(struct pool_infos *pool)
     if (!stratum_connect(sctx))
         return false;
 
+#ifdef PRIMO_RANDOMX
+    /* Monero dialect: one login call replaces subscribe+authorize and
+     * carries the first job in its reply. */
+    if (opt_algo == ALGO_RANDOMX) {
+        if (!xmr_stratum_login(sctx, pool->user, pool->pass)) {
+            applog(LOG_ERR, "RandomX login failed");
+            stratum_disconnect(sctx);
+            return false;
+        }
+        applog(LOG_INFO, "Connected and authorized");
+        return true;
+    }
+#endif
+
     if (!stratum_subscribe(sctx)) {
         applog(LOG_ERR, "Subscribe failed");
         stratum_disconnect(sctx);

@@ -154,7 +154,8 @@ SOURCES_CPP = \
 	src/utils/log.cpp
 
 ifneq ($(PRIMO_RANDOMX),0)
-SOURCES_CPP += src/algorithm/randomx_algo.cpp
+SOURCES_CPP += src/algorithm/randomx_algo.cpp \
+	src/stratum_xmr.cpp
 endif
 
 SOURCES_ASM = \

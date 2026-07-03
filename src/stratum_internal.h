@@ -58,6 +58,13 @@ typedef bool (*stratum_job_apply_fn)(struct stratum_ctx *sctx, void *opaque);
 typedef void (*stratum_work_build_fn)(const struct stratum_ctx *sctx, struct work *new_work);
 
 bool stratum_notify_standard(struct stratum_ctx *sctx, json_t *params);
+#ifdef PRIMO_RANDOMX
+/* Monero/RandomX dialect (stratum_xmr.cpp + login in stratum_handshake.cpp) */
+bool xmr_stratum_handle_job(struct stratum_ctx *sctx, json_t *params);
+bool xmr_stratum_submit(struct pool_infos *pool, struct work *work);
+char *xmr_build_request_line(const char *method, uint32_t id, json_t *params);
+bool xmr_stratum_login(struct stratum_ctx *sctx, const char *user, const char *pass);
+#endif
 bool verus_stratum_notify(struct stratum_ctx *sctx, json_t *params);
 bool verus_stratum_set_target(struct stratum_ctx *sctx, json_t *params);
 bool verus_stratum_submit(struct pool_infos *pool, struct work *work);

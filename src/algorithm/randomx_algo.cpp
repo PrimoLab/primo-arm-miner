@@ -362,11 +362,13 @@ extern "C" int scanhash_randomx(int thr_id, struct work *work,
     if (!vm)
         return 0;
 
-    /* Phase A: fixed 76-byte hashing blob taken from the head of work->data.
-     * (Phase B stores the pool's real blob + length there.) */
+    /* Hashing blob lives at the head of work->data; rx_blob_len is set by
+     * build_xmr_work (0 in benchmark mode = default 76 bytes). */
     uint8_t blob[RANDOMX_BLOB_MAX];
-    memcpy(blob, work->data, 76);
-    size_t blob_len = 76;
+    size_t blob_len = work->rx_blob_len ? work->rx_blob_len : 76;
+    if (blob_len > RANDOMX_BLOB_MAX)
+        blob_len = RANDOMX_BLOB_MAX;
+    memcpy(blob, work->data, blob_len);
 
     uint32_t n = work->data[RANDOMX_NONCE_WORD];
     uint32_t first = n;
@@ -387,12 +389,15 @@ extern "C" int scanhash_randomx(int thr_id, struct work *work,
         if (rx_hash_le_target(hash, work->target) &&
             work->valid_nonces < MAX_NONCES) {
             work->nonces[work->valid_nonces] = n;
-            /* Result hash travels with the work for Phase B submission
-             * (Monero submits the full 32-byte hash, not just the nonce). */
-            uint8_t *extra = miner_work_extra(work);
-            if (extra)
-                memcpy(extra + work->valid_nonces * RANDOMX_HASH_SIZE,
-                       hash, RANDOMX_HASH_SIZE);
+            /* Result hash travels with the work — Monero submits the full
+             * 32-byte hash, not just the nonce (see xmr_stratum_submit). */
+            memcpy(work->rx_hash[work->valid_nonces], hash, RANDOMX_HASH_SIZE);
+            /* Share difficulty from the hash's top 8 LE bytes (display). */
+            uint64_t h64 = 0;
+            for (int b = 31; b >= 24; b--)
+                h64 = (h64 << 8) | hash[b];
+            work->sharediff[work->valid_nonces] =
+                h64 ? 18446744073709551616.0 / (double)h64 : 0.0;
             work->valid_nonces++;
             n++;
             break;  /* submit immediately (same rationale as scrypt) */

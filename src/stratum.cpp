@@ -40,10 +40,23 @@ static const struct stratum_protocol_ops verus_protocol_ops = {
     .submit_share = verus_stratum_submit,
 };
 
+#ifdef PRIMO_RANDOMX
+static const struct stratum_protocol_ops xmr_protocol_ops = {
+    .handle_notify = xmr_stratum_handle_job,
+    .handle_set_target = NULL,
+    .submit_share = xmr_stratum_submit,
+};
+#endif
+
 const struct stratum_protocol_ops *stratum_get_protocol_ops(const struct stratum_ctx *sctx)
 {
     if (opt_algo == ALGO_VERUS || stratum_is_verus_protocol_load(sctx))
         return &verus_protocol_ops;
+
+#ifdef PRIMO_RANDOMX
+    if (opt_algo == ALGO_RANDOMX)
+        return &xmr_protocol_ops;
+#endif
 
     return &standard_protocol_ops;
 }

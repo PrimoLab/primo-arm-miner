@@ -325,7 +325,14 @@ static bool stratum_parse_response_view(json_t *val, struct stratum_response_vie
 
 static const char *stratum_get_reject_reason(json_t *err_val)
 {
-    if (!err_val || !json_is_array(err_val) || json_array_size(err_val) <= 1)
+    if (!err_val)
+        return NULL;
+
+    /* Monero dialect: error is an object {"code":-1,"message":"..."} */
+    if (json_is_object(err_val))
+        return json_string_value(json_object_get(err_val, "message"));
+
+    if (!json_is_array(err_val) || json_array_size(err_val) <= 1)
         return NULL;
 
     return json_string_value(json_array_get(err_val, 1));
@@ -347,7 +354,16 @@ static bool stratum_handle_submit_response(struct stratum_ctx *sctx,
      * Treat a missing result as a rejection (json_is_true(NULL) is false) rather
      * than a fatal protocol error — an out-of-spec reject shouldn't cycle the
      * whole connection. */
-    if (json_is_true(response->result)) {
+    /* Monero dialect: an accepted submit returns {"status":"OK"} instead of
+     * boolean true. */
+    bool result_ok = json_is_true(response->result);
+    if (!result_ok && json_is_object(response->result)) {
+        const char *status =
+            json_string_value(json_object_get(response->result, "status"));
+        result_ok = status && strcasecmp(status, "OK") == 0;
+    }
+
+    if (result_ok) {
         miner_record_thread_share_result(thread_id, true);
         stratum_update_share_stats(sctx->pooln, true, &accepted_count, &rejected_count);
         if (have_metadata)
@@ -533,6 +549,9 @@ static enum stratum_message_status stratum_handle_get_version_method(const struc
 
 static const struct stratum_method_handler stratum_method_handlers[] = {
     { "mining.notify", stratum_handle_notify_method },
+    /* Monero dialect: new work is pushed as method "job" with the job object
+     * as params; routed through the same ops->handle_notify. */
+    { "job", stratum_handle_notify_method },
     { "mining.ping", stratum_handle_ping_method },
     { "mining.set_difficulty", stratum_handle_set_difficulty_method },
     { "mining.set_target", stratum_handle_set_target_method },

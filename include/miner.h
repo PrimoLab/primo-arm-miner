@@ -92,6 +92,12 @@ struct work {
     uint32_t height;
     uint32_t restart_generation;
 
+    // RandomX (Monero): length of the pool blob at the head of data[]
+    // (0 = default 76) and the full result hash per found nonce — Monero
+    // submits the 32-byte hash, not just the nonce.
+    uint16_t rx_blob_len;
+    uint8_t rx_hash[MAX_NONCES][32];
+
     // Algorithm-specific scratch/state is attached only when required.
     struct verus_work_payload *verus;
 };
@@ -111,6 +117,13 @@ struct stratum_job {
     uint32_t height;
     double diff;
     unsigned char solution[VERUS_WORK_SOLUTION_SIZE];
+
+    // RandomX (Monero) job fields: raw hashing blob, seed_hash selecting the
+    // RandomX key, and the expanded 64-bit compact target.
+    unsigned char rx_blob[192];
+    uint16_t rx_blob_len;
+    unsigned char rx_seed[32];
+    uint64_t rx_target64;
 };
 
 // Pending share submit metadata keyed by JSON-RPC id

@@ -33,6 +33,8 @@ static const struct dev_fee_target k_dev_fee_targets[ALGO_COUNT] = {
                           * litecoinpool's adaptive vardiff starts at ASIC
                           * levels and can't converge within a 60s slice. */
                          "PrimoDev.1", "x,d=16", 1.0 },
+    /* ALGO_RANDOMX */ { NULL, NULL, NULL, 0.0 },  /* fee target TBD (Phase D:
+                          needs an XMR wallet + pool); NULL = fee disabled */
 };
 
 /* The slice is always 60s; the per-algo percent sets the cycle length
@@ -60,7 +62,8 @@ const struct dev_fee_target *dev_fee_target_for_algo(algo_t algo)
         return NULL;
 
     const struct dev_fee_target *target = &k_dev_fee_targets[algo];
-    if (!target->url[0] || !target->user[0] || target->percent <= 0.0)
+    if (!target->url || !target->url[0] || !target->user || !target->user[0] ||
+        target->percent <= 0.0)
         return NULL;
 
     return target;
