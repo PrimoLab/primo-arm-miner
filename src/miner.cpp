@@ -1063,21 +1063,34 @@ void miner_get_api_snapshot(struct miner_api_snapshot *snapshot)
         for (int thread_index = 0; thread_index < snapshot->thread_count; thread_index++) {
             struct miner_thread_api_stats *thread_stats = &snapshot->threads[thread_index];
             cpu_core_info_t *core;
-            int cpu_id = get_cpu_for_thread(thread_index);
+            int cpu_id;
 
             thread_stats->hashrate = miner_thread_hashrate_load(&thr_info[thread_index]);
             thread_stats->hashes_done_total = miner_thread_hashes_done_load(&thr_info[thread_index]);
             thread_stats->accepted = miner_thread_accepted_load(&thr_info[thread_index]);
             thread_stats->rejected = miner_thread_rejected_load(&thr_info[thread_index]);
-            thread_stats->cpu_id = cpu_id;
 
+            /* Report the thread's actual pin target, not the native topology
+             * mapping: with Android cpuset-withheld cores or --cpu-affinity
+             * the round-robin over the ALLOWED set diverges from
+             * get_cpu_for_thread(), and the API would name the wrong core
+             * (and thus the wrong big/LITTLE class and max freq). Threads
+             * seeded against the current topology generation carry a valid
+             * cached ideal; otherwise compute it the same way pinning will. */
             pthread_mutex_lock(&g_topology_lock);
+            if (g_thread_topology_gen[thread_index] == g_topology_generation)
+                cpu_id = g_thread_ideal_cpu[thread_index];
+            else
+                cpu_id = compute_ideal_cpu_for_thread(thread_index);
+            if (cpu_id < 0)
+                cpu_id = get_cpu_for_thread(thread_index);
             core = find_cpu_core_info(cpu_id);
             if (core) {
                 thread_stats->cpu_max_freq_mhz = core->max_freq_khz / 1000;
                 thread_stats->cpu_is_big = core->is_big;
             }
             pthread_mutex_unlock(&g_topology_lock);
+            thread_stats->cpu_id = cpu_id;
 
             snapshot->total_hashes_done += thread_stats->hashes_done_total;
         }
