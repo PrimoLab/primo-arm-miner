@@ -1326,16 +1326,23 @@ void *miner_thread(void *userdata)
             // loop also checks restart/abort every hash, so a generous chunk
             // costs nothing in job-switch latency.
             if (chunk_hashrate > 1.0) {
-                chunk_size = (uint32_t)(chunk_hashrate * 5.0);
-                if (chunk_size > 4096) chunk_size = 4096;
-                if (chunk_size < 16)   chunk_size = 16;
+                // Clamp in double space before the uint32_t cast: casting an
+                // out-of-range double to an unsigned integer type is UB in
+                // C/C++ (harmless here on AArch64's saturating FCVTZU, but
+                // not guaranteed by the standard - clamp first so the cast
+                // is always in-range regardless of target/optimizer).
+                double target_size = chunk_hashrate * 5.0;
+                if (target_size > 4096.0) target_size = 4096.0;
+                if (target_size < 16.0)   target_size = 16.0;
+                chunk_size = (uint32_t)target_size;
             } else {
                 chunk_size = 256;  // ~3s on a big core, ~15s worst-case light mode
             }
         } else if (chunk_hashrate > 100000.0) {
-            chunk_size = (uint32_t)(chunk_hashrate * 5.0);
-            if (chunk_size > 0x1000000) chunk_size = 0x1000000;  // cap: 16M
-            if (chunk_size < 0x100000)  chunk_size = 0x100000;   // min:  1M
+            double target_size = chunk_hashrate * 5.0;
+            if (target_size > (double)0x1000000) target_size = (double)0x1000000;  // cap: 16M
+            if (target_size < (double)0x100000)  target_size = (double)0x100000;   // min:  1M
+            chunk_size = (uint32_t)target_size;
         } else {
             chunk_size = 0x300000;  // 3M default (fits in A55 warmup window)
         }
