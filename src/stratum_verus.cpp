@@ -307,6 +307,9 @@ static bool apply_verus_notify(struct stratum_ctx *sctx, const struct verus_noti
     if (!msg->solution || !msg->solution[0])
         memset(decoded_solution, 0, sizeof(decoded_solution));
 
+    if (!stratum_check_job_id_length(msg->job_id, "Stratum notify"))
+        goto out;
+
     new_job_id = strdup(msg->job_id);
     if (!new_job_id) {
         applog(LOG_ERR, "Stratum notify: failed to duplicate job id");

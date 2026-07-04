@@ -90,6 +90,26 @@ bool stratum_decode_hex_field(void *output, const char *hexstr, size_t len, cons
     return true;
 }
 
+/* struct work's job_id field is a fixed char[128] (include/miner.h). A job_id
+ * at or beyond that length would be silently truncated by the later
+ * snprintf(new_work->job_id, sizeof(new_work->job_id), "%s", ...) in each
+ * protocol's build_*_work(), desyncing the ID we submit shares against from
+ * what the pool tracks - exactly the failure mode the historical ccminer
+ * "+8 skip" bug caused (see CLAUDE.md), just via truncation instead of an
+ * offset. Reject the job update instead of silently mining against an ID we
+ * already know we can't correctly round-trip. */
+bool stratum_check_job_id_length(const char *job_id, const char *context)
+{
+    size_t max_len = sizeof(((struct work *)0)->job_id) - 1; /* reserve the NUL */
+
+    if (!job_id || strlen(job_id) <= max_len)
+        return true;
+
+    applog(LOG_ERR, "%s: job_id too long (%zu chars, max %zu) - rejecting this job update",
+           context && context[0] ? context : "Stratum notify", strlen(job_id), max_len);
+    return false;
+}
+
 /* json_object_set_new() steals the reference to *value and decrements it even
  * on failure. Null the caller's handle up-front so the error-cleanup path can
  * never double-decref the (now freed or owned) value. Returns 0 on success. */

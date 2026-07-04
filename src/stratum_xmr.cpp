@@ -104,6 +104,8 @@ static bool xmr_parse_job_view(json_t *job, struct xmr_job_view *v)
         applog(LOG_ERR, "RandomX job: missing job_id/blob/target");
         return false;
     }
+    if (!stratum_check_job_id_length(job_id, "RandomX job"))
+        return false;
 
     size_t blob_hex_len = strlen(blob);
     if ((blob_hex_len & 1) != 0 || blob_hex_len / 2 > sizeof(v->blob) ||

@@ -220,6 +220,9 @@ static bool apply_standard_notify(struct stratum_ctx *sctx, const struct standar
     if (!stratum_decode_merkle_array(msg->merkle_arr, &merkle, &merkle_count))
         goto out;
 
+    if (!stratum_check_job_id_length(msg->job_id, "Stratum notify"))
+        goto out;
+
     new_job_id = strdup(msg->job_id);
     if (!new_job_id) {
         applog(LOG_ERR, "Stratum notify: failed to duplicate job id");

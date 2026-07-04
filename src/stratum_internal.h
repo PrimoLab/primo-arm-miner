@@ -85,6 +85,7 @@ char *stratum_build_submit_request_line(uint32_t submit_id, const char *user, co
 bool stratum_json_array_append_string(json_t *array, const char *value);
 bool stratum_decode_hex_field(void *output, const char *hexstr, size_t len, const char *context,
     const char *field_name);
+bool stratum_check_job_id_length(const char *job_id, const char *context);
 bool stratum_update_time_offset(struct stratum_ctx *sctx, const char *stime, bool swap32);
 void stratum_free_merkle(unsigned char **merkle, int merkle_count);
 void stratum_job_clear_merkle(struct stratum_job *job);
