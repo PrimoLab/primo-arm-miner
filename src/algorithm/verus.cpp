@@ -520,10 +520,14 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 			 * won in the same pair. */
 			bool found_a = try_record_share(candidate_hash, nonce_space);
 			bool found_b = try_record_share(candidate_b, nonce_space_b);
-			if (found_b)
-				nonce_buf++;
-			if (found_a || found_b)
+			if (found_a || found_b) {
+				/* Keep nonce_buf = next-to-hash on this exit too: one past
+				 * chain B when B won; at chain B when only A won (re-scans
+				 * the non-winning B — the pre-existing, deliberate
+				 * behavior; see the x2 both-chains note in CLAUDE.md). */
+				nonce_buf += found_b ? 2 : 1;
 				goto out;
+			}
 			nonce_buf += 2;
 		}
 	}
@@ -538,14 +542,10 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 			nonce_space, key_buffer, mutated_slots, mirrored_slots, preserved_values,
 			preserved_values_mirror);
 		scanned_hashes++;
+		nonce_buf++;
 
 		if (try_record_share(candidate_hash, nonce_space))
 			goto out;
-
-		if (scanned_hashes >= max_hashes) {
-			break;
-		}
-		nonce_buf++;
 	}
 
 
@@ -554,7 +554,13 @@ out:
 	// Report per-call work delta (not absolute nonce space position).
 	// miner.cpp accumulates this value to compute hashrate.
 	*hashes_done = scanned_hashes;
-	pdata[kNonceWordIndex] = scanned_hashes > 0 ? nonce_buf + 1 : nonce_buf;
+	// nonce_buf is maintained as "next nonce to hash" on EVERY exit path
+	// (share found, chunk complete, restart/abort), so it is the exact
+	// resume point. Only the benchmark loop consumes this readback — live
+	// mining tracks next_nonce_index in miner_thread — but the previous
+	// `nonce_buf + 1` skipped one nonce whenever the x2 loop (or a
+	// restart) exited with nonce_buf already advanced past the last hash.
+	pdata[kNonceWordIndex] = nonce_buf;
 
 	return work->valid_nonces;
 }
