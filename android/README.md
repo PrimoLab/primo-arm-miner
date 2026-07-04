@@ -52,9 +52,15 @@ cd android && bash build_apk_termux.sh
 
 ### Why the native build is special
 - The APK binary must depend only on **bionic system libs** (+ a bundled
-  `libc++.so`). `build_native_termux.sh` builds **static** libcurl (TCP-only:
-  `--without-ssl` etc. — pools are `stratum+tcp://`) + static libjansson via
-  `build_static_deps_termux.sh`, then relinks the miner against them.
+  `libc++_shared.so`). `build_native_termux.sh` builds **static** libcurl
+  (TCP-only: `--without-ssl` etc. — pools are `stratum+tcp://`) + static
+  libjansson via `build_static_deps_termux.sh`, then relinks the miner against
+  them. RandomX made two things matter that never did before: the standalone
+  clang-16 ships **no libc++ headers** (the clang++ wrapper adds Termux's
+  `include/c++/v1` — the miner's own C++ never needed them), and the relink
+  must link Termux's `libc++_shared.so` explicitly (`-nostdlib++`) because the
+  driver's implicit `-lc++` resolves to the symbol-poor `/system/lib64`
+  libc++.
 - **DNS:** the app sandbox blocks `getaddrinfo` from a raw native subprocess
   ("Could not resolve host"), even though TCP works. `MinerService` resolves the
   pool host on the JVM side and launches the miner with the IP
@@ -154,7 +160,12 @@ Takes effect the next time mining starts.
       which also fixed the brief post-Stop pill flicker.
 - [x] Save validation: blank primary pool URL is rejected with a toast instead
       of silently writing a config the miner can't use.
-- [x] **Dark dashboard home page** (custom theme, teal accent): big hashrate,
+- [x] **Per-algorithm coin-color accents** (`Palette.kt`): verus = Verus blue,
+      sha256d = Bitcoin orange, scrypt = Litecoin silver-blue, randomx = Monero
+      orange (teal = fallback). Hero card (runtime gradient + algo badge),
+      hashrate, MINING status, thread chips, START pill and the config page's
+      headers/SAVE all re-tint live when the algorithm changes.
+- [x] **Dark dashboard home page** (custom theme, coin accent): big hashrate,
       algo/pool, live per-thread chips (from `threads`), stat grid (accepted/
       rejected/difficulty/uptime/max-hash/temp/battery/charge), Start/Stop pill.
       Config moved to a **cog in the action bar** (no more button). Battery/charge
