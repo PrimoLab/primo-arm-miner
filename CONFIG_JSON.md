@@ -15,7 +15,7 @@ For shorter copy-paste examples, see [`CONFIG_EXAMPLES.md`](CONFIG_EXAMPLES.md).
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `algo` | string | Mining algorithm: `verus`, `sha256d`, or `scrypt`. |
+| `algo` | string | Mining algorithm: `verus`, `sha256d`, `scrypt`, or `randomx` (Monero; aliases `rx`, `xmr`, `monero`). RandomX fast mode needs ~2.5 GiB free RAM; falls back to a ~5x-slower light mode when it doesn't fit. |
 | `api-bind` | string or integer | API bind address. Accepts `IP:PORT`, `IP`, or just a port number. |
 | `benchmark` | boolean | Run offline benchmark mode instead of pool mining. |
 | `cpu-affinity` | string or integer | CPU affinity mask. Accepts `-1`/`all`, decimal masks, or hex masks such as `0xf0`. |

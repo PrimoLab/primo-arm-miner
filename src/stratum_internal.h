@@ -23,7 +23,14 @@ struct stratum_protocol_ops {
     bool (*handle_notify)(struct stratum_ctx *sctx, json_t *params);
     bool (*handle_set_target)(struct stratum_ctx *sctx, json_t *params);
     bool (*submit_share)(struct pool_infos *pool, struct work *work);
+    /* Optional: ping the pool when the message loop has received nothing for
+     * STRATUM_IDLE_KEEPALIVE_SEC. NULL = protocol needs no keepalive. */
+    bool (*idle_keepalive)(struct stratum_ctx *sctx);
 };
+
+/* Idle interval before idle_keepalive fires. Monero pools drop connections
+ * quiet for a few minutes; jobs normally arrive well inside this bound. */
+#define STRATUM_IDLE_KEEPALIVE_SEC 60
 
 struct stratum_runtime_stats {
     uint64_t work_updates_total;
@@ -64,6 +71,7 @@ bool xmr_stratum_handle_job(struct stratum_ctx *sctx, json_t *params);
 bool xmr_stratum_submit(struct pool_infos *pool, struct work *work);
 char *xmr_build_request_line(const char *method, uint32_t id, json_t *params);
 bool xmr_stratum_login(struct stratum_ctx *sctx, const char *user, const char *pass);
+bool xmr_stratum_keepalive(struct stratum_ctx *sctx);
 #endif
 bool verus_stratum_notify(struct stratum_ctx *sctx, json_t *params);
 bool verus_stratum_set_target(struct stratum_ctx *sctx, json_t *params);

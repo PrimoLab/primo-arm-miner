@@ -23,6 +23,9 @@ enum stratum_request_id {
     STRATUM_REQUEST_AUTHORIZE = 2,
     STRATUM_REQUEST_EXTRANONCE_SUBSCRIBE = 3,
     STRATUM_REQUEST_LOGIN = 4,  /* Monero dialect single-call handshake */
+    /* id 5 = Monero "keepalived" (sent from stratum_xmr.cpp). Keep every
+     * fire-and-forget request id below 10: the response dispatch ignores
+     * ids < 10, submit ids start at 10. */
 };
 
 static bool stratum_reply_matches_id(json_t *reply, uint32_t expected_id)

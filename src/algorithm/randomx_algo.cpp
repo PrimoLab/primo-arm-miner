@@ -20,6 +20,8 @@
 #include <sched.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
 #include <vector>
@@ -119,6 +121,10 @@ static void rx_init_dataset_mt(void)
         unsigned long count = (i == n - 1) ? (total - start) : chunk;
         workers.emplace_back([start, count]() {
             rx_unpin_current_thread();
+            /* Low priority: init saturates every core for ~14 s (and recurs
+             * on each ~2.8-day re-key) — keep the UI/stratum threads live.
+             * Costs nothing on an otherwise idle system. Best-effort. */
+            setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), 10);
             randomx_init_dataset(g_dataset, g_cache, start, count);
         });
         start += count;
@@ -147,10 +153,14 @@ static bool rx_apply_seed_locked(const void *seed, size_t seed_len)
  * Caller holds g_rx_lock. */
 static bool rx_alloc_memory_locked(void)
 {
-    randomx_flags cache_flags = g_flags | RANDOMX_FLAG_LARGE_PAGES;
-    g_cache = randomx_alloc_cache(cache_flags);
-    if (!g_cache)
+    bool cache_large_pages = true;
+    bool dataset_large_pages = false;
+
+    g_cache = randomx_alloc_cache(g_flags | RANDOMX_FLAG_LARGE_PAGES);
+    if (!g_cache) {
+        cache_large_pages = false;
         g_cache = randomx_alloc_cache(g_flags);
+    }
     if (!g_cache) {
         applog(LOG_ERR, "RandomX: cache allocation failed (need 256 MiB)");
         return false;
@@ -158,6 +168,7 @@ static bool rx_alloc_memory_locked(void)
 
     if (!g_light_mode) {
         g_dataset = randomx_alloc_dataset(g_flags | RANDOMX_FLAG_LARGE_PAGES);
+        dataset_large_pages = g_dataset != NULL;
         if (!g_dataset)
             g_dataset = randomx_alloc_dataset(g_flags);
         if (!g_dataset) {
@@ -166,6 +177,21 @@ static bool rx_alloc_memory_locked(void)
                    "falling back to LIGHT mode (~5x slower)");
             g_light_mode = true;
         }
+    }
+
+    /* Hugepage hint (never fatal — mining runs fine on 4 KiB pages, just
+     * ~11% slower in fast mode, RK3588-measured). Android has no user
+     * hugetlbfs, so the sysctl advice only makes sense on Linux SBCs. */
+    if (!g_light_mode && dataset_large_pages) {
+        applog(LOG_INFO, "RandomX: dataset using 2 MiB huge pages (+~11%%)");
+#if !defined(__ANDROID__)
+    } else if (!g_light_mode || !cache_large_pages) {
+        applog(LOG_INFO,
+               "RandomX: 2 MiB huge pages unavailable (~11%% faster with them) "
+               "— try: sysctl vm.nr_hugepages=%d (reserves %s of RAM)",
+               g_light_mode ? 192 : 1200,
+               g_light_mode ? "384 MiB" : "2.4 GiB");
+#endif
     }
     return true;
 }
@@ -302,9 +328,13 @@ extern "C" void randomx_set_seed(const void *seed, size_t seed_len)
     pthread_mutex_lock(&g_rx_lock);
     if (g_runtime_ready &&
         (g_seed_len != seed_len || memcmp(g_seed, seed, seed_len) != 0)) {
-        /* NOTE (Phase B): callers must quiesce scanhash threads before
-         * re-keying — VMs reference the dataset being rebuilt. Fine today:
-         * the first seed is applied before mining threads start hashing. */
+        /* Quiesce mining threads: bump the work generation so each finishes
+         * its current hash (≤ ~12 ms) and re-enters scanhash, where
+         * rx_thread_vm blocks on g_rx_lock until the re-key completes. The
+         * dataset is re-initialized IN PLACE — without this, threads would
+         * hash garbage against a half-rebuilt dataset for the full ~14 s. */
+        if (g_epoch > 0)
+            miner_work_generation_bump();
         memcpy(g_seed, seed, seed_len);
         g_seed_len = seed_len;
         rx_apply_seed_locked(g_seed, g_seed_len);

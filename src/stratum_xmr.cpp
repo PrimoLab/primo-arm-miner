@@ -179,8 +179,8 @@ bool xmr_stratum_handle_job(struct stratum_ctx *sctx, json_t *params)
 
     /* Re-key BEFORE taking the work lock: a seed change rebuilds the 2 GiB
      * dataset (~14 s, rare — every ~2.8 days). randomx_set_seed is a no-op
-     * for an unchanged seed. In-flight hashes on the old key produce stale
-     * shares at worst (the dataset is re-initialized in place, not freed). */
+     * for an unchanged seed; on a real change it quiesces mining threads
+     * itself (work-generation bump + they block on the rx lock). */
     if (v.have_seed)
         randomx_set_seed(v.seed, 32);
 
@@ -233,6 +233,30 @@ bool xmr_stratum_submit(struct pool_infos *pool, struct work *work)
     ok = stratum_send_submit(sctx, line, submit_id, work->sharediff[nonce_id],
                              work->thread_id, "randomx");
     free(line);
+    return ok;
+}
+
+/* Idle ping (Monero "keepalived") so quiet pools don't drop us between jobs.
+ * Request id 5 sits in the reserved <10 range, so the {"status":"KEEPALIVED"}
+ * reply is ignored by the response dispatch instead of being miscounted as a
+ * share result. */
+bool xmr_stratum_keepalive(struct stratum_ctx *sctx)
+{
+    json_t *params = json_object();
+    char *line;
+    bool ok;
+
+    if (!params)
+        return false;
+    json_object_set_new(params, "id",
+                        json_string(sctx->session_id ? sctx->session_id : ""));
+    line = xmr_build_request_line("keepalived", 5, params);
+    if (!line)
+        return false;
+    ok = stratum_send_line(sctx, line);
+    free(line);
+    if (opt_debug && ok)
+        applog(LOG_DEBUG, "randomx: sent keepalived (idle pool)");
     return ok;
 }
 

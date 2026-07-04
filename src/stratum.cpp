@@ -45,6 +45,7 @@ static const struct stratum_protocol_ops xmr_protocol_ops = {
     .handle_notify = xmr_stratum_handle_job,
     .handle_set_target = NULL,
     .submit_share = xmr_stratum_submit,
+    .idle_keepalive = xmr_stratum_keepalive,
 };
 #endif
 

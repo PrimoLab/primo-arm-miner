@@ -292,6 +292,8 @@ bool stratum_wait_ready(int timeout_seconds, bool *work_ready_out)
 
 void stratum_run_message_loop(struct stratum_ctx *sctx)
 {
+    time_t last_line_at = time(NULL);
+
     while (!miner_should_abort()) {
         /* Break before recv if a reconnect was already requested by the
          * previous message handler — avoids polling a closed socket and
@@ -306,6 +308,16 @@ void stratum_run_message_loop(struct stratum_ctx *sctx)
             break;
 
         int receive_timeout = miner_get_pool_timeout(sctx->pooln);
+
+        /* Protocols with an idle keepalive (Monero) bound the recv wait so a
+         * quiet pool gets pinged instead of timing the connection out. */
+        const struct stratum_protocol_ops *ops = stratum_get_protocol_ops(sctx);
+        bool keepalive_bounded = false;
+        if (ops->idle_keepalive && receive_timeout > STRATUM_IDLE_KEEPALIVE_SEC) {
+            receive_timeout = STRATUM_IDLE_KEEPALIVE_SEC;
+            keepalive_bounded = true;
+        }
+
         int devfee_deadline = devfee_seconds_until_transition();
         bool devfee_bounded = devfee_deadline >= 0 && devfee_deadline < receive_timeout;
         if (devfee_bounded)
@@ -313,17 +325,27 @@ void stratum_run_message_loop(struct stratum_ctx *sctx)
 
         bool timed_out = false;
         char *line = stratum_recv_line_timeout(sctx, receive_timeout, &timed_out,
-                                               !devfee_bounded);
+                                               !devfee_bounded && !keepalive_bounded);
         if (!line) {
             /* A timeout against the dev fee deadline is not a connection
              * problem — loop back so the boundary check above handles it. */
             if (timed_out && devfee_bounded)
+                continue;
+            /* Idle-keepalive timeout: ping and keep waiting — but only up to
+             * the pool timeout of total silence (keepalived replies land as
+             * lines, so a live pool resets the clock; sends into a dead TCP
+             * connection can "succeed" for a long time). A failed send means
+             * the socket is gone right now — fall through to reconnect. */
+            if (timed_out && keepalive_bounded &&
+                time(NULL) - last_line_at < miner_get_pool_timeout(sctx->pooln) &&
+                ops->idle_keepalive(sctx))
                 continue;
             if (!__atomic_load_n(&sctx->reconnect_requested, __ATOMIC_ACQUIRE))
                 applog(LOG_ERR, "Stratum connection lost");
             break;
         }
 
+        last_line_at = time(NULL);
         if (!stratum_handle_message(sctx, line)) {
             applog(LOG_ERR, "Fatal stratum protocol error, reconnecting");
             free(line);

@@ -44,9 +44,10 @@ sudo apk add curl jansson
 - **Hardware crypto extensions** — ARMv8 PMULL, AES, and SHA2 instructions on the hot paths
 - **Per-core runtime optimization** — big.LITTLE topology detected at startup; interleaved CLHash, fused-dispatch CLHash, and SoA scrypt kernels enabled per thread where they win
 - **Hotplug-resilient core pinning** — pins are chosen from the platform-allowed cpuset and reconciled continuously; threads adopt cores that Android parks/wakes at runtime instead of losing their pins
+- **RandomX (Monero)** — vendored reference library (tevador/RandomX, BSD-3) with the aarch64 JIT; fast mode (~2.1 GiB dataset) with automatic light-mode fallback (256 MiB) on low-RAM devices
 - **ccminer-compatible control surface** — same CLI flags, JSON config format, and monitoring API
-- **Full stratum support** — standard (SHA256d/scrypt) and Verus/equihash variants, multi-pool failover
-- **Tiny footprint** — a single ~228 KB binary, two runtime libraries (libcurl, libjansson)
+- **Full stratum support** — standard (SHA256d/scrypt), Verus/equihash, and Monero (RandomX) dialects, multi-pool failover
+- **Tiny footprint** — a single ~490 KB binary (~260 KB built with `PRIMO_RANDOMX=0`), two runtime libraries (libcurl, libjansson)
 
 ## Performance
 
@@ -57,6 +58,14 @@ Measured on RK3588 (4×Cortex-A55 @ 1.8 GHz + 4×Cortex-A76 @ 2.25–2.35 GHz):
 | Verus (VerusHash v2.2) | ~1.44 MH/s | ~7.5 MH/s |
 | SHA256d | ~16.3 MH/s | ~90 MH/s |
 | Scrypt (N=1024) | ~4.8 kH/s | ~25.9 kH/s |
+| RandomX (Monero rx/0) | ~160 H/s | ~690 H/s (~760 with huge pages) |
+
+RandomX numbers are fast mode (needs ~2.5 GiB free RAM; the miner falls back
+to light mode, ~5x slower, when the dataset doesn't fit — or force it with
+`PRIMO_RANDOMX_LIGHT=1`). RandomX is memory-latency bound, so LITTLE cores
+contribute far less than on the other algorithms (~7% on RK3588) and it runs
+the chassis notably hotter. On Linux SBCs, 2 MiB huge pages are ~11% faster:
+`sysctl vm.nr_hugepages=1200` (the miner logs a hint when they're missing).
 
 Galaxy S10+ (Exynos 9820, Termux): ~5.5-5.7 MH/s Verus across 8 threads.
 Per-core optimizations (two-nonce interleaved CLHash on big cores, fused
@@ -180,6 +189,9 @@ runtime. (To force the portable C CLHash path for debugging: `VERUS_ASM=0`.)
 
 # Benchmark sha256d
 ./primo-arm-miner -a sha256d --benchmark -t 4
+
+# Mine Monero (RandomX; aliases: randomx / rx / xmr / monero)
+./primo-arm-miner -a randomx -o stratum+tcp://pool.supportxmr.com:3333 -u XMR_WALLET -p x
 ```
 
 ### JSON Config File (ccminer-compatible)
