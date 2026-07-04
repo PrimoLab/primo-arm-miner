@@ -513,12 +513,17 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 				}
 			}
 
-			if (try_record_share(candidate_hash, nonce_space))
-				goto out;
-			if (try_record_share(candidate_b, nonce_space_b)) {
+			/* Check BOTH chains before deciding to stop - MAX_NONCES is 2,
+			 * so a pair can legitimately have two winners. Short-circuiting
+			 * on chain A alone (the old `if (...) goto out;` shape) would
+			 * silently drop chain B's already-computed hash whenever both
+			 * won in the same pair. */
+			bool found_a = try_record_share(candidate_hash, nonce_space);
+			bool found_b = try_record_share(candidate_b, nonce_space_b);
+			if (found_b)
 				nonce_buf++;
+			if (found_a || found_b)
 				goto out;
-			}
 			nonce_buf += 2;
 		}
 	}
