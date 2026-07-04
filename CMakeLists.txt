@@ -1,3 +1,17 @@
+# Default to clang-16, matching the Makefile (`ifeq ($(origin CC), default)`).
+# Must run before project() — that's what triggers compiler detection/caching.
+# A user-supplied `-DCMAKE_C_COMPILER=...`/`-DCMAKE_CXX_COMPILER=...` already
+# populates the cache before this script runs, so the NOT-DEFINED guards below
+# only fire on the "nothing specified" default path; without them, CMake picks
+# whatever `cc`/`c++` resolves to on $PATH (e.g. stock GCC), which fails to
+# build clhash_native.h's Clang-only vector-literal syntax.
+if(NOT DEFINED CMAKE_C_COMPILER)
+    set(CMAKE_C_COMPILER clang-16 CACHE STRING "C compiler")
+endif()
+if(NOT DEFINED CMAKE_CXX_COMPILER)
+    set(CMAKE_CXX_COMPILER clang++-16 CACHE STRING "C++ compiler")
+endif()
+
 cmake_minimum_required(VERSION 3.10)
 project(primo-arm-miner VERSION 1.0.6 LANGUAGES C CXX ASM)
 
@@ -152,7 +166,11 @@ else()
     target_link_options(primo-arm-miner PRIVATE "-flto")
 endif()
 
-if(PRIMO_LINKER STREQUAL "lld")
+# hugetlbfs page-alignment hint (lld only). The Android kernel has no
+# hugetlbfs and its linker rejects the flag, so Android/Termux builds pass
+# -DPRIMO_HUGETLBFS=0 to drop it — mirrors the Makefile's PRIMO_HUGETLBFS=0.
+option(PRIMO_HUGETLBFS "Pass -Wl,-hugetlbfs-align when using lld" ON)
+if(PRIMO_LINKER STREQUAL "lld" AND PRIMO_HUGETLBFS)
     target_link_options(primo-arm-miner PRIVATE "-Wl,-hugetlbfs-align")
 endif()
 
