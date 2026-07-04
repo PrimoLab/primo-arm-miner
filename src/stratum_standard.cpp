@@ -103,7 +103,6 @@ static bool apply_standard_job_locked(struct stratum_ctx *sctx, void *opaque)
     unsigned char nbits[4];
     unsigned char ntime[4];
     uint32_t height;
-    bool job_changed = !sctx->job.job_id || strcmp(sctx->job.job_id, msg->job_id) != 0;
 
     new_coinbase = update->new_coinbase;
     update->new_coinbase = NULL;
@@ -116,10 +115,14 @@ static bool apply_standard_job_locked(struct stratum_ctx *sctx, void *opaque)
         goto out;
     memcpy(new_coinbase + coinb1_size, sctx->xnonce1, sctx->xnonce1_size);
     new_xnonce2 = new_coinbase + coinb1_size + sctx->xnonce1_size;
-    if (job_changed || !sctx->job.xnonce2)
-        memset(new_xnonce2, 0, sctx->xnonce2_size);
-    else
-        memcpy(new_xnonce2, sctx->job.xnonce2, sctx->xnonce2_size);
+    /* xnonce2 is always zero: this miner partitions the 2^32 header-nonce
+     * space across threads and waits for fresh work on exhaustion (see
+     * CLAUDE.md "Nonce Range Exhaustion") instead of rolling extranonce2.
+     * A previous version "preserved" the prior job's xnonce2 across
+     * coinbase refreshes here, but with no writer anywhere it only ever
+     * copied zeros — if extranonce2 rolling is ever added, this is the
+     * spot that must start carrying the counter. */
+    memset(new_xnonce2, 0, sctx->xnonce2_size);
     if (!stratum_decode_hex_field(new_xnonce2 + sctx->xnonce2_size, msg->coinb2,
                                   coinb2_size, "Stratum notify", "coinb2")) {
         goto out;
