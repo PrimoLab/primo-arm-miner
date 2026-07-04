@@ -101,6 +101,18 @@ object ProfileStore {
         store(ctx, load(ctx).put("lanApi", on))
     }
 
+    /**
+     * App-wide flag: user ticked "don't show again" on the first-launch
+     * disclaimer (what the app does + dev fee + own-risk). Until then the
+     * dialog reappears on every dashboard launch.
+     */
+    fun disclaimerAccepted(ctx: Context): Boolean =
+        load(ctx).optBoolean("disclaimerOk", false)
+
+    fun setDisclaimerAccepted(ctx: Context) {
+        store(ctx, load(ctx).put("disclaimerOk", true))
+    }
+
     fun profile(ctx: Context, algo: String): Profile {
         val algos = load(ctx).optJSONObject("algos") ?: return Profile()
         val j = algos.optJSONObject(algo) ?: return Profile()

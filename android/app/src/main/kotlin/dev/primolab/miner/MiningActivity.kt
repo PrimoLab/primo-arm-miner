@@ -99,6 +99,50 @@ class MiningActivity : Activity() {
         applyAccent(ProfileStore.activeAlgo(this))
         setPill(false)
         startStop.setOnClickListener { if (mining) stopMining() else startMining() }
+        if (!ProfileStore.disclaimerAccepted(this)) showDisclaimer()
+    }
+
+    /**
+     * First-launch disclosure: what the app is (a CPU miner), the dev fee, and
+     * an own-risk/no-warranty statement. Not dismissible except through the
+     * buttons; "Don't show again" persists via ProfileStore so it reappears on
+     * every launch until the user opts out. EXIT closes the app.
+     */
+    private fun showDisclaimer() {
+        val dp = resources.displayMetrics.density
+        val pad = (20 * dp).toInt()
+        val body = TextView(this).apply {
+            text = getString(R.string.disclaimer_text)
+            textSize = 14f
+            setLineSpacing(3 * dp, 1f)
+        }
+        val dontShow = android.widget.CheckBox(this).apply {
+            text = getString(R.string.disclaimer_dont_show)
+            isChecked = true
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, (10 * dp).toInt(), pad, 0)
+            addView(body)
+            addView(dontShow, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = (10 * dp).toInt()
+                })
+        }
+        val scroll = android.widget.ScrollView(this).apply { addView(box) }
+        android.app.AlertDialog.Builder(this)
+            .setTitle(getString(R.string.disclaimer_title))
+            .setView(scroll)
+            .setCancelable(false)
+            .setPositiveButton(getString(R.string.disclaimer_accept)) { d, _ ->
+                if (dontShow.isChecked) ProfileStore.setDisclaimerAccepted(this)
+                d.dismiss()
+            }
+            .setNegativeButton(getString(R.string.disclaimer_exit)) { _, _ ->
+                finishAffinity()
+            }
+            .show()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
