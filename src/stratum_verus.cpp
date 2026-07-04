@@ -183,13 +183,11 @@ static bool apply_verus_job_locked(struct stratum_ctx *sctx, void *opaque)
     size_t coinb2_size = strlen(msg->coinb2) / 2;
     size_t coinbase_size = coinb1_size + coinb2_size + sctx->xnonce1_size + sctx->xnonce2_size;
     unsigned char *new_coinbase = NULL;
-    unsigned char *new_xnonce2;
     unsigned char version[4];
     unsigned char prevhash[32];
     unsigned char nbits[4];
     unsigned char ntime[4];
     uint32_t preserved_height = sctx->job.height;
-    bool job_changed = !sctx->job.job_id || strcmp(sctx->job.job_id, msg->job_id) != 0;
 
     if (!verus_validate_nonce_layout(sctx))
         return false;
@@ -220,11 +218,14 @@ static bool apply_verus_job_locked(struct stratum_ctx *sctx, void *opaque)
                                   "Stratum notify", "coinb2"))
         goto out;
     memcpy(new_coinbase + coinb1_size + coinb2_size, sctx->xnonce1, sctx->xnonce1_size);
-    new_xnonce2 = new_coinbase + coinb1_size + coinb2_size + sctx->xnonce1_size;
-    if (job_changed || !sctx->job.xnonce2)
-        memset(new_xnonce2, 0, sctx->xnonce2_size);
-    else
-        memcpy(new_xnonce2, sctx->job.xnonce2, sctx->xnonce2_size);
+    /* The trailing xnonce2_size bytes of the coinbase buffer are allocated
+     * (coinbase_prealloc reserves coinb1 + 32 + coinb2) but never read back:
+     * build_verus_work() below only ever copies the leading 64 bytes of
+     * sctx->job.coinbase into the header, and unlike standard stratum (see
+     * stratum_standard.cpp's sha256d_neon() merkle computation over the
+     * full coinbase), Verus never reconstructs a merkle root client-side.
+     * Leave those bytes as whatever malloc handed back rather than
+     * preserving/resetting a value nothing consumes. */
 
     stratum_job_clear_merkle(&sctx->job);
 
@@ -234,7 +235,6 @@ static bool apply_verus_job_locked(struct stratum_ctx *sctx, void *opaque)
     free(sctx->job.coinbase);
     sctx->job.coinbase = new_coinbase;
     sctx->job.coinbase_size = coinbase_size;
-    sctx->job.xnonce2 = new_xnonce2;
     new_coinbase = NULL;
     memcpy(sctx->job.solution, update->decoded_solution, sizeof(sctx->job.solution));
     memcpy(sctx->job.version, version, sizeof(version));

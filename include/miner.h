@@ -118,11 +118,13 @@ struct stratum_job {
     double diff;
     unsigned char solution[VERUS_WORK_SOLUTION_SIZE];
 
-    // RandomX (Monero) job fields: raw hashing blob, seed_hash selecting the
-    // RandomX key, and the expanded 64-bit compact target.
+    // RandomX (Monero) job fields: raw hashing blob and the expanded 64-bit
+    // compact target. The seed_hash itself isn't stored here - it only ever
+    // needs to reach randomx_set_seed() (xmr_stratum_handle_job() calls that
+    // directly off the freshly-parsed job view, before this struct is even
+    // updated), so there was never a consumer for a copy of it in the job.
     unsigned char rx_blob[192];
     uint16_t rx_blob_len;
-    unsigned char rx_seed[32];
     uint64_t rx_target64;
 };
 

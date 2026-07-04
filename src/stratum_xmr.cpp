@@ -143,7 +143,6 @@ static bool xmr_apply_job_locked(struct stratum_ctx *sctx, void *opaque)
 
     memcpy(sctx->job.rx_blob, v->blob, v->blob_len);
     sctx->job.rx_blob_len = (uint16_t)v->blob_len;
-    memcpy(sctx->job.rx_seed, v->seed, sizeof(v->seed));
     sctx->job.rx_target64 = v->target64;
     sctx->job.diff = v->diff;
     sctx->job.height = v->height;
