@@ -700,9 +700,18 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
         g_thread_next_repin[thread_id] = time(NULL) + k_repin_interval_sec;
     }
 
+    /* The topology walks below (core selection, core-info lookups for the
+     * pin logs) take g_topology_lock like every other reader of
+     * g_cpu_cores[]/g_core_order[]: a repin tick on an already-running
+     * thread could in principle be mid-refresh while a late-starting thread
+     * is still in here. In practice the first tick fires 20s after startup,
+     * but hold the lock anyway so the documented invariant has no
+     * exceptions in this TU. */
     if (opt_affinity_set && g_num_cpus > 0) {
         cpu_set_t cpuset;
+        pthread_mutex_lock(&g_topology_lock);
         int selected_cpu = select_affinity_cpu_for_thread(thread_id, &allowed);
+        pthread_mutex_unlock(&g_topology_lock);
 
         CPU_ZERO(&cpuset);
         if (selected_cpu >= 0)
@@ -711,11 +720,16 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
         if (selected_cpu >= 0 &&
             sched_setaffinity(0, sizeof(cpuset), &cpuset) == 0) {
             intended_cpu = selected_cpu;
+            pthread_mutex_lock(&g_topology_lock);
             cpu_core_info_t *core = find_cpu_core_info(selected_cpu);
-            if (core) {
+            bool core_known = core != NULL;
+            bool core_is_big = core && core->is_big;
+            int core_freq_mhz = core ? core->max_freq_khz / 1000 : 0;
+            pthread_mutex_unlock(&g_topology_lock);
+            if (core_known) {
                 applog(LOG_INFO, "Thread %d pinned to CPU %d via affinity mask 0x%lx (%s @ %d MHz)",
                        thread_id, selected_cpu, opt_affinity_mask,
-                       core->is_big ? "big" : "LITTLE", core->max_freq_khz / 1000);
+                       core_is_big ? "big" : "LITTLE", core_freq_mhz);
             } else {
                 applog(LOG_INFO, "Thread %d pinned to CPU %d via affinity mask 0x%lx",
                        thread_id, selected_cpu, opt_affinity_mask);
@@ -739,14 +753,16 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
          * identical to the native mapping when nothing is withheld. Android
          * foreground apps are routinely restricted to a core subset that varies
          * by vendor and screen state, so this path is common there. */
+        pthread_mutex_lock(&g_topology_lock);
         int cpu_id = select_allowed_cpu_for_thread(thread_id, &allowed);
-
+        int core_order_count = g_core_order_count;
         int allowed_count = 0;
-        for (int i = 0; i < g_core_order_count; i++) {
+        for (int i = 0; i < core_order_count; i++) {
             int oc = g_core_order[i];
             if (oc >= 0 && oc < CPU_SETSIZE && CPU_ISSET(oc, &allowed))
                 allowed_count++;
         }
+        pthread_mutex_unlock(&g_topology_lock);
 
         if (cpu_id < 0) {
             applog(LOG_WARNING,
@@ -766,12 +782,12 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
          * the allowed set, so an individual thread moving off its native core
          * does not by itself mean that core was withheld). This covers Linux
          * taskset/cgroup and Android cpuset alike. */
-        if (cpu_id >= 0 && allowed_count > 0 && allowed_count < g_core_order_count) {
+        if (cpu_id >= 0 && allowed_count > 0 && allowed_count < core_order_count) {
             static volatile int cpuset_hint_logged = 0;
             if (__sync_lock_test_and_set(&cpuset_hint_logged, 1) == 0) {
                 applog(LOG_INFO,
                        "Platform allows this process only %d of %d CPUs — total hashrate is capped accordingly",
-                       allowed_count, g_core_order_count);
+                       allowed_count, core_order_count);
 #ifdef __ANDROID__
                 applog(LOG_INFO,
                        "Android withholds CPUs from apps that are not the focused foreground app; "
@@ -788,12 +804,17 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
             CPU_SET(cpu_id, &cpuset);
         if (cpu_id >= 0 && sched_setaffinity(0, sizeof(cpuset), &cpuset) == 0) {
             intended_cpu = cpu_id;
+            pthread_mutex_lock(&g_topology_lock);
             cpu_core_info_t *core = find_cpu_core_info(cpu_id);
-            if (core) {
+            bool core_known = core != NULL;
+            bool core_is_big = core && core->is_big;
+            int core_freq_mhz = core ? core->max_freq_khz / 1000 : 0;
+            pthread_mutex_unlock(&g_topology_lock);
+            if (core_known) {
                 applog(LOG_INFO, "Thread %d pinned to CPU %d (%s @ %d MHz)",
                        thread_id, cpu_id,
-                       core->is_big ? "big" : "LITTLE",
-                       core->max_freq_khz / 1000);
+                       core_is_big ? "big" : "LITTLE",
+                       core_freq_mhz);
             } else {
                 applog(LOG_INFO, "Thread %d pinned to CPU %d", thread_id, cpu_id);
             }
@@ -808,6 +829,7 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
             cpu_set_t big_set;
             int big_count = 0;
             CPU_ZERO(&big_set);
+            pthread_mutex_lock(&g_topology_lock);
             for (int i = 0; i < g_num_cpus; i++) {
                 int big_cpu = g_cpu_cores[i].cpu_id;
                 if (g_cpu_cores[i].is_big &&
@@ -816,6 +838,7 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
                     big_count++;
                 }
             }
+            pthread_mutex_unlock(&g_topology_lock);
             if (big_count > 0 && sched_setaffinity(0, sizeof(big_set), &big_set) == 0) {
                 applog(LOG_WARNING,
                        "Thread %d: per-core pin to CPU %d rejected (%s); pinned to allowed big-core set instead",
@@ -838,13 +861,17 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
      * is the ground truth when diagnosing low hashrate on a phone. */
     int actual_cpu = sched_getcpu();
     if (actual_cpu >= 0) {
+        pthread_mutex_lock(&g_topology_lock);
         cpu_core_info_t *core = find_cpu_core_info(actual_cpu);
-        const char *cls = core ? (core->is_big ? "big" : "LITTLE") : "unknown";
+        bool core_known = core != NULL;
+        bool core_is_big = core && core->is_big;
+        pthread_mutex_unlock(&g_topology_lock);
+        const char *cls = core_known ? (core_is_big ? "big" : "LITTLE") : "unknown";
         if (intended_cpu >= 0 && actual_cpu != intended_cpu) {
             applog(LOG_WARNING,
                    "Thread %d: requested CPU %d but running on CPU %d (%s) — platform overrode affinity",
                    thread_id, intended_cpu, actual_cpu, cls);
-        } else if (core && !core->is_big) {
+        } else if (core_known && !core_is_big) {
             applog(LOG_WARNING, "Thread %d running on LITTLE CPU %d — expect reduced hashrate",
                    thread_id, actual_cpu);
         } else if (opt_debug) {
