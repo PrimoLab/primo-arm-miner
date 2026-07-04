@@ -377,7 +377,10 @@ static bool parse_json_boolish(json_t *value)
     return false;
 }
 
-static int clamp_positive_json_integer(json_t *value)
+/* Per-pool timeout from a config value. 0 = unset (miner_get_pool_timeout
+ * then falls back to the global opt_timeout); a nonpositive configured
+ * value means the same thing rather than silently becoming a 1s timeout. */
+static int parse_pool_timeout_json(json_t *value)
 {
     int parsed;
 
@@ -385,7 +388,7 @@ static int clamp_positive_json_integer(json_t *value)
         return 0;
 
     parsed = (int)json_integer_value(value);
-    return parsed > 0 ? parsed : 1;
+    return parsed > 0 ? parsed : 0;
 }
 
 static bool affinity_mask_has_hex_alpha(const char *arg)
@@ -833,7 +836,7 @@ static void apply_configured_pool(json_t *pool_config, size_t pool_index)
     apply_pool_default_credentials((int)pool_index, true, true, true);
 
     pools[pool_index].disabled = parse_json_boolish(disabled);
-    pools[pool_index].timeout = clamp_positive_json_integer(timeout);
+    pools[pool_index].timeout = parse_pool_timeout_json(timeout);
     register_pool_index((int)pool_index);
 }
 
