@@ -346,8 +346,13 @@ class MiningActivity : Activity() {
         findViewById<TextView>(id).apply { text = v; setTextColor(color) }
     }
 
-    private fun fmtRate(khs: Double): String =
-        if (khs >= 1000) "%.2f MH/s".format(khs / 1000.0) else "%.2f kH/s".format(khs)
+    // API hashrates are in kH/s. RandomX runs at hundreds of H/s (kHS < 1),
+    // so show raw H/s below 1 kH/s instead of "0.70 kH/s".
+    private fun fmtRate(khs: Double): String = when {
+        khs >= 1000 -> "%.2f MH/s".format(khs / 1000.0)
+        khs >= 1.0  -> "%.2f kH/s".format(khs)
+        else        -> "%.0f H/s".format(khs * 1000.0)
+    }
 
     private fun fmtDiff(d: String?): String {
         val v = d?.toDoubleOrNull() ?: return "—"

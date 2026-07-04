@@ -65,6 +65,19 @@ phone and tap it (enable "install unknown apps").
 
 ## Pool configuration notes
 
+### RandomX (Monero)
+
+Select `randomx` as the algorithm and point it at a Monero pool
+(`stratum+tcp://host:port`, user = your XMR address, optionally `.worker` or
+`+<difficulty>` per the pool). Failover pools work the same as the other algos.
+
+RandomX is **memory-hard**: fast mode allocates a ~2.1 GiB dataset. The app
+picks fast vs **light mode** (256 MiB, ~5x slower) automatically from device
+RAM — light on phones under ~3 GiB total, or when memory is already tight — and
+the native miner also falls back to light if the big allocation fails. Expect
+heavy thermal throttling: RandomX is far hotter than the other algorithms, so
+sustained phone hashrate is cooling-limited.
+
 ### Merged mining (Litecoin + Dogecoin, scrypt)
 
 LTC+DOGE merged mining is handled **entirely by the pool** (AuxPoW) — the scrypt

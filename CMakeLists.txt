@@ -89,8 +89,37 @@ set(SOURCES
     src/utils/log.cpp
 )
 
+# RandomX (Monero). The vendored library builds through its OWN CMakeLists so
+# our -ffast-math never touches its consensus-critical IEEE-754 code (wrong
+# rounding = wrong hashes). CMAKE_C/CXX_FLAGS are inherited by add_subdirectory,
+# so we blank our aggressive flags for the descent and restore them after — the
+# subdir gets a clean -O3 (Release) + its own -march=armv8-a+crypto.
+# -DPRIMO_RANDOMX=0 opts out and drops the algorithm.
+option(PRIMO_RANDOMX "Build RandomX (Monero) support" ON)
+if(PRIMO_RANDOMX)
+    list(APPEND SOURCES
+        src/algorithm/randomx_algo.cpp
+        src/stratum_xmr.cpp
+    )
+    set(_primo_saved_c_flags "${CMAKE_C_FLAGS}")
+    set(_primo_saved_cxx_flags "${CMAKE_CXX_FLAGS}")
+    set(CMAKE_C_FLAGS "${PRIMO_BASE_ARCH_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${PRIMO_BASE_ARCH_FLAGS}")
+    if(NOT CMAKE_BUILD_TYPE)
+        set(CMAKE_BUILD_TYPE Release)
+    endif()
+    add_subdirectory(third_party/RandomX EXCLUDE_FROM_ALL)
+    set(CMAKE_C_FLAGS "${_primo_saved_c_flags}")
+    set(CMAKE_CXX_FLAGS "${_primo_saved_cxx_flags}")
+endif()
+
 # Executable
 add_executable(primo-arm-miner ${SOURCES})
+
+if(PRIMO_RANDOMX)
+    target_compile_definitions(primo-arm-miner PRIVATE PRIMO_RANDOMX=1)
+    target_include_directories(primo-arm-miner PRIVATE third_party/RandomX/src)
+endif()
 
 # Match Makefile behavior for per-file hot-path tuning.
 set_source_files_properties(
@@ -111,6 +140,10 @@ target_link_libraries(primo-arm-miner
     Threads::Threads
     m
 )
+
+if(PRIMO_RANDOMX)
+    target_link_libraries(primo-arm-miner randomx)
+endif()
 
 # Match the promoted ccminer baseline linker shape.
 if(PRIMO_LINKER)

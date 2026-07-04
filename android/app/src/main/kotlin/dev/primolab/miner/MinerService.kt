@@ -94,6 +94,12 @@ class MinerService : Service() {
             // Any bundled shared libs (e.g. libc++_shared.so) ship in the same
             // nativeLibraryDir as the binary; point the loader at them.
             pb.environment()["LD_LIBRARY_PATH"] = binary.parent
+            // RandomX fast mode needs a ~2.1 GiB dataset; on low-RAM devices
+            // (or when the app is likely to be reaped for it) force light mode
+            // (256 MiB, ~5x slower). Harmless for the other algos, which ignore
+            // this env var.
+            if (shouldUseLightRandomx())
+                pb.environment()["PRIMO_RANDOMX_LIGHT"] = "1"
             val proc = pb.start()
             process = proc
 
@@ -168,6 +174,27 @@ class MinerService : Service() {
             src.copyTo(out, overwrite = true)
         }
         return out
+    }
+
+    /**
+     * Decide RandomX fast vs light mode from device RAM. Fast mode's 2.1 GiB
+     * dataset plus the OS and other apps makes it unsafe below ~3 GiB total;
+     * we also fall to light if the system is already low on memory (Android
+     * would likely kill us mid-dataset otherwise). The native miner also
+     * auto-falls-back if the dataset allocation itself fails — this just
+     * avoids the wasted 14 s build and the OOM-kill risk. Overridable later
+     * via a config key; auto for now.
+     */
+    private fun shouldUseLightRandomx(): Boolean {
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val mi = android.app.ActivityManager.MemoryInfo()
+        am.getMemoryInfo(mi)
+        val totalGiB = mi.totalMem / (1024.0 * 1024.0 * 1024.0)
+        if (totalGiB < 3.0) return true
+        if (mi.lowMemory) return true
+        // Need the dataset (2.1 GiB) to fit with headroom in what's free now.
+        val availGiB = mi.availMem / (1024.0 * 1024.0 * 1024.0)
+        return availGiB < 2.6
     }
 
     /** Rewrite one stratum URL's host to a resolved IP; on any failure the

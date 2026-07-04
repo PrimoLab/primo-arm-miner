@@ -27,7 +27,7 @@ import java.io.File
  */
 object ProfileStore {
 
-    val ALGOS = listOf("verus", "sha256d", "scrypt")
+    val ALGOS = listOf("verus", "sha256d", "scrypt", "randomx")
 
     /** UI cap on pools per algo. The miner itself allows MAX_USER_POOLS=8. */
     const val MAX_POOLS = 4

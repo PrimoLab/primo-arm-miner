@@ -26,6 +26,23 @@ if [ ! -x "$W/clang++" ]; then
   CLANG_PREFIX="${CLANG_PREFIX:-$HOME/clang-16}" bash "$ROOT/build_termux.sh"
 fi
 
+# RandomX (Monero) — build the vendored static lib on-device unless opted out.
+# Needs `pkg install cmake`. PRIMO_RANDOMX=0 skips it and drops the algorithm.
+PRIMO_RANDOMX="${PRIMO_RANDOMX:-1}"
+RANDOMX_LIB="$ROOT/third_party/RandomX/build/librandomx.a"
+RANDOMX_MAKEVARS=""
+RANDOMX_LINK_LIB=""
+if [ "$PRIMO_RANDOMX" != "0" ]; then
+  command -v cmake >/dev/null 2>&1 || { echo "ERROR: cmake needed for RandomX (pkg install cmake), or run with PRIMO_RANDOMX=0" >&2; exit 1; }
+  echo "==> building vendored RandomX static lib (its own cmake, our clang-16)"
+  make -C "$ROOT" "$RANDOMX_LIB" CC="$W/clang" CXX="$W/clang++"
+  [ -f "$RANDOMX_LIB" ] || { echo "ERROR: librandomx.a not produced" >&2; exit 1; }
+  RANDOMX_LINK_LIB="$RANDOMX_LIB"
+else
+  # Keep the miner objects free of RandomX symbols so the relink stays clean.
+  RANDOMX_MAKEVARS="PRIMO_RANDOMX=0"
+fi
+
 # 3. compile against the static-dep headers (the make link step is a throwaway —
 #    it links dynamically and may fail; we relink static next). A nonzero make
 #    is tolerated ONLY for the link step: verify below that every source
@@ -33,7 +50,7 @@ fi
 #    instead of surfacing as a confusing relink failure.
 echo "==> compiling miner objects"
 make clean >/dev/null 2>&1 || true
-make -j"$(nproc)" \
+make -j"$(nproc)" $RANDOMX_MAKEVARS \
   CC="$W/clang" CXX="$W/clang++" PRIMO_LINKER=lld \
   PRIMO_HUGETLBFS=0 PRIMO_A53_ERRATA=0 \
   PRIMO_EXTRA_CFLAGS="-I$SDEPS/include -DCURL_STATICLIB" \
@@ -42,6 +59,10 @@ make -j"$(nproc)" \
 missing=0
 for s in src/*.cpp src/utils/*.cpp src/algorithm/*.c src/algorithm/*.S; do
   [ -e "$s" ] || continue
+  # stratum_xmr / randomx_algo aren't compiled when PRIMO_RANDOMX=0.
+  if [ "$PRIMO_RANDOMX" = "0" ]; then
+    case "$s" in *stratum_xmr.cpp|*randomx_algo.cpp) continue;; esac
+  fi
   o="${s%.*}.o"
   if [ ! -f "$o" ]; then
     echo "ERROR: compile failed — missing $o" >&2
@@ -52,11 +73,12 @@ done
 
 # 4. relink explicitly against the static archives. (The Makefile's
 #    PRIMO_LDLIBS_OVERRIDE didn't survive being passed over SSH; an explicit
-#    relink is unambiguous. Objects are LTO bitcode — lld links them fine.)
+#    relink is unambiguous. Objects are LTO bitcode — lld links them fine, and
+#    librandomx.a is an ordinary (non-LTO) archive like curl/jansson.)
 echo "==> relinking static"
 "$W/clang++" $(ls src/*.o src/utils/*.o src/algorithm/*.o) \
   -flto -pthread -fuse-ld=lld \
-  "$SDEPS/lib/libcurl.a" "$SDEPS/lib/libjansson.a" -lm \
+  "$SDEPS/lib/libcurl.a" "$SDEPS/lib/libjansson.a" $RANDOMX_LINK_LIB -lm \
   -o primo-arm-miner
 
 echo "==> NEEDED (want only libm/libc++/libdl/libc):"
