@@ -424,6 +424,20 @@ static bool stratum_reconnect(struct stratum_ctx *sctx, json_t *params)
     if (!stratum_set_url(sctx, url))
         goto out;
 
+    /* Keep the pool table in step with the session: failover logs, the API
+     * pool listing and dev-fee return messages all print pools[].url, and
+     * leaving the pre-redirect URL there makes them name a host this
+     * session is no longer talking to (connects use sctx->url). */
+    if (sctx->pooln >= 0 && sctx->pooln < num_pools) {
+        struct pool_infos *pool = &pools[sctx->pooln];
+        const char *short_url = strstr(url, "://");
+        short_url = short_url ? short_url + 3 : url;
+        pthread_mutex_lock(&stratum_work_lock);
+        snprintf(pool->url, sizeof(pool->url), "%s", url);
+        snprintf(pool->short_url, sizeof(pool->short_url), "%s", short_url);
+        pthread_mutex_unlock(&stratum_work_lock);
+    }
+
     applog(LOG_NOTICE, "Server requested reconnection to %s", sctx->url);
     __atomic_store_n(&sctx->reconnect_requested, 1, __ATOMIC_RELEASE);
     stratum_disconnect(sctx);
