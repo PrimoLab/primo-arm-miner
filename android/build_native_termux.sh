@@ -35,7 +35,9 @@ RANDOMX_LINK_LIB=""
 if [ "$PRIMO_RANDOMX" != "0" ]; then
   command -v cmake >/dev/null 2>&1 || { echo "ERROR: cmake needed for RandomX (pkg install cmake), or run with PRIMO_RANDOMX=0" >&2; exit 1; }
   echo "==> building vendored RandomX static lib (its own cmake, our clang-16)"
-  make -C "$ROOT" "$RANDOMX_LIB" CC="$W/clang" CXX="$W/clang++"
+  # Relative target: the Makefile rule is the relative path, so the absolute
+  # $RANDOMX_LIB is "No rule to make target" to make.
+  make -C "$ROOT" third_party/RandomX/build/librandomx.a CC="$W/clang" CXX="$W/clang++"
   [ -f "$RANDOMX_LIB" ] || { echo "ERROR: librandomx.a not produced" >&2; exit 1; }
   RANDOMX_LINK_LIB="$RANDOMX_LIB"
 else
@@ -76,17 +78,24 @@ done
 #    relink is unambiguous. Objects are LTO bitcode — lld links them fine, and
 #    librandomx.a is an ordinary (non-LTO) archive like curl/jansson.)
 echo "==> relinking static"
+#    C++ runtime: RandomX needs real libc++ symbols (std::__ndk1 string etc).
+#    The driver's implicit -lc++ resolves to /system/lib64/libc++.so (std::__1
+#    only) → undefined symbols. Link Termux's libc++_shared.so explicitly and
+#    suppress the implicit one; we bundle that exact lib next to the binary.
 "$W/clang++" $(ls src/*.o src/utils/*.o src/algorithm/*.o) \
-  -flto -pthread -fuse-ld=lld \
-  "$SDEPS/lib/libcurl.a" "$SDEPS/lib/libjansson.a" $RANDOMX_LINK_LIB -lm \
+  -flto -pthread -fuse-ld=lld -nostdlib++ \
+  "$SDEPS/lib/libcurl.a" "$SDEPS/lib/libjansson.a" $RANDOMX_LINK_LIB \
+  "$PREFIX/lib/libc++_shared.so" -lm \
   -o primo-arm-miner
 
 echo "==> NEEDED (want only libm/libc++/libdl/libc):"
 readelf -d primo-arm-miner | grep NEEDED
 
-# 5. stage libprimo.so + libc++.so (bundled under the NEEDED name) into jniLibs
+# 5. stage libprimo.so + libc++_shared.so (the NEEDED name — MinerService sets
+#    LD_LIBRARY_PATH to this dir) into jniLibs
 mkdir -p "$JNI"
+rm -f "$JNI/libc++.so"   # pre-RandomX builds staged it under this name
 cp primo-arm-miner "$JNI/libprimo.so"
-cp "$PREFIX/lib/libc++_shared.so" "$JNI/libc++.so"
-echo "==> staged $JNI/{libprimo.so,libc++.so}"
+cp "$PREFIX/lib/libc++_shared.so" "$JNI/libc++_shared.so"
+echo "==> staged $JNI/{libprimo.so,libc++_shared.so}"
 echo "==> now: cd android && bash build_apk_termux.sh"

@@ -87,17 +87,26 @@ if [ -n "${CLANG_PREFIX:-}" ]; then
     for _ext in clang clang++; do
         if [ "$_ext" = "clang" ]; then
             _c16="$CLANG16_C"
+            _flags="$COMPILE_FLAGS"
         else
             _c16="$CLANG16_CXX"
+            # Standalone clang-16 ships no libc++ headers and won't find
+            # Termux's under this sysroot layout. The miner's own C++ never
+            # includes libc++ headers so this went unnoticed until RandomX
+            # (<cstring> etc). Termux libc++ (LLVM 21) warns "only supports
+            # Clang 18+" but compiles fine with clang-16.
+            _flags="$COMPILE_FLAGS"
+            [ -d "$TERMUX_USR/include/c++/v1" ] && \
+                _flags="$_flags -isystem $TERMUX_USR/include/c++/v1"
         fi
         cat > "$WRAPPER_DIR/$_ext" << EOF
 #!/bin/sh
 _link=1
 for _a; do case "\$_a" in -c|-E|-S|-M|-MM) _link=0; break;; esac; done
 if [ "\$_link" = "1" ]; then
-  exec "$_c16" $COMPILE_FLAGS $LINK_EXTRA "\$@"
+  exec "$_c16" $_flags $LINK_EXTRA "\$@"
 else
-  exec "$_c16" $COMPILE_FLAGS "\$@"
+  exec "$_c16" $_flags "\$@"
 fi
 EOF
         chmod +x "$WRAPPER_DIR/$_ext"
