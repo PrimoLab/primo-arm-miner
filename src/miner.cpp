@@ -739,7 +739,6 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
          * identical to the native mapping when nothing is withheld. Android
          * foreground apps are routinely restricted to a core subset that varies
          * by vendor and screen state, so this path is common there. */
-        int native_cpu = get_cpu_for_thread(thread_id);
         int cpu_id = select_allowed_cpu_for_thread(thread_id, &allowed);
 
         int allowed_count = 0;
@@ -749,7 +748,6 @@ void miner_configure_current_thread(struct thr_info *thread_ctx)
                 allowed_count++;
         }
 
-        (void)native_cpu;
         if (cpu_id < 0) {
             applog(LOG_WARNING,
                    "Thread %d: no platform-allowed core found; leaving to scheduler",
