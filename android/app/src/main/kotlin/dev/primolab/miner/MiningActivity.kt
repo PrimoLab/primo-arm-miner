@@ -41,16 +41,34 @@ class MiningActivity : Activity() {
     private lateinit var pool: TextView
     private lateinit var status: TextView
     private lateinit var statusDot: View
+    private lateinit var heroCard: View
     private lateinit var threadWrap: LinearLayout
     private lateinit var startStop: Button
 
-    private val ACCENT = Color.parseColor("#19E3A1")
     private val IDLE = Color.parseColor("#2A2E3A")
     private val DARK = Color.parseColor("#0B0C10")
     private val WARN = Color.parseColor("#FFB020")
     private val DANGER = Color.parseColor("#FF5566")
     private val DIM = Color.parseColor("#828A9A")
     private val TEXT = Color.parseColor("#F2F4F8")
+
+    /** Live accent = the active algorithm's coin color (Palette). Everything
+     *  accent-tinted is re-applied through applyAccent() when it changes. */
+    private var accent = Palette.TEAL
+    private var accentAlgo: String? = null
+
+    private fun applyAccent(algoName: String?) {
+        val normalized = algoName?.trim()?.lowercase()
+        if (normalized == accentAlgo) return
+        accentAlgo = normalized
+        accent = Palette.accentFor(normalized)
+        val d = resources.displayMetrics.density
+        heroCard.background = Palette.heroCard(accent, d)
+        algo.background = Palette.badge(accent, d)
+        hashrate.setTextColor(accent)
+        setPill(mining)
+        if (status.text.toString() == "MINING") setStatus("MINING", accent)
+    }
 
     private val poller = object : Runnable {
         override fun run() {
@@ -75,8 +93,10 @@ class MiningActivity : Activity() {
         pool = findViewById(R.id.poolText)
         status = findViewById(R.id.statusText)
         statusDot = findViewById(R.id.statusDot)
+        heroCard = findViewById(R.id.heroCard)
         threadWrap = findViewById(R.id.threadWrap)
         startStop = findViewById(R.id.startStopButton)
+        applyAccent(ProfileStore.activeAlgo(this))
         setPill(false)
         startStop.setOnClickListener { if (mining) stopMining() else startMining() }
     }
@@ -98,7 +118,12 @@ class MiningActivity : Activity() {
         return super.onOptionsItemSelected(item)
     }
 
-    override fun onResume() { super.onResume(); handler.post(poller) }
+    override fun onResume() {
+        super.onResume()
+        // Algo may have changed on the config page while we were paused.
+        applyAccent(ProfileStore.activeAlgo(this))
+        handler.post(poller)
+    }
     override fun onPause() { super.onPause(); handler.removeCallbacks(poller) }
 
     private fun startMining() {
@@ -131,7 +156,7 @@ class MiningActivity : Activity() {
     private fun setPill(active: Boolean) {
         startStop.text = if (active) getString(R.string.stop) else getString(R.string.start)
         startStop.backgroundTintList =
-            ColorStateList.valueOf(if (active) Color.parseColor("#FF5566") else ACCENT)
+            ColorStateList.valueOf(if (active) DANGER else accent)
     }
 
     private fun render(
@@ -153,6 +178,7 @@ class MiningActivity : Activity() {
             hashrate.text = "0.00 MH/s"
             // Show the configured algo/pool so the hero isn't blank while idle.
             val cfgAlgo = ProfileStore.activeAlgo(this)
+            applyAccent(cfgAlgo)
             algo.text = cfgAlgo.uppercase()
             pool.text = ProfileStore.profile(this, cfgAlgo).pools.first()
                 .url.substringAfter("://").ifBlank { "—" }
@@ -167,6 +193,7 @@ class MiningActivity : Activity() {
         if (s == null) {
             hashrate.text = "0.00 MH/s"
             val cfgAlgo = ProfileStore.activeAlgo(this)
+            applyAccent(cfgAlgo)
             algo.text = cfgAlgo.uppercase()
             pool.text = ProfileStore.profile(this, cfgAlgo).pools.first()
                 .url.substringAfter("://").ifBlank { "—" }
@@ -177,6 +204,7 @@ class MiningActivity : Activity() {
         val khs = s["KHS"]?.toDoubleOrNull() ?: 0.0
         if (khs > maxKhs) maxKhs = khs
         hashrate.text = fmtRate(khs)
+        applyAccent(s["ALGO"])
         algo.text = s["ALGO"]?.uppercase() ?: "—"
         // Live pool from the API (name = hostname written by ProfileStore);
         // fall back to the configured primary if the pool query failed.
@@ -184,7 +212,7 @@ class MiningActivity : Activity() {
             ?: livePool?.get("URL")?.substringAfter("://")?.ifBlank { null }
             ?: ProfileStore.profile(this, ProfileStore.activeAlgo(this)).pools.first()
                 .url.substringAfter("://").ifBlank { "—" }
-        if (khs > 0.0) setStatus("MINING", ACCENT) else setStatus("CONNECTING…", WARN)
+        if (khs > 0.0) setStatus("MINING", accent) else setStatus("CONNECTING…", WARN)
 
         setVal(R.id.valAccepted, s["ACC"] ?: "0")
         val rej = s["REJ"]?.toIntOrNull() ?: 0
@@ -316,7 +344,7 @@ class MiningActivity : Activity() {
                 minWidth = (34 * dp).toInt()             // uniform width across single digits
                 setTextColor(if (active) DARK else DIM)
                 background = resources.getDrawable(R.drawable.thread_chip, theme)
-                backgroundTintList = ColorStateList.valueOf(if (active) ACCENT else IDLE)
+                backgroundTintList = ColorStateList.valueOf(if (active) accent else IDLE)
                 val padH = (6 * dp).toInt(); val padV = (7 * dp).toInt()
                 setPadding(padH, padV, padH, padV)
             }

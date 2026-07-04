@@ -14,7 +14,7 @@
         android:paddingBottom="28dp">
 
         <!-- ============ MINER ============ -->
-        <TextView style="@style/SectionHeader"
+        <TextView android:id="@+id/sectionMiner" style="@style/SectionHeader"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:text="MINER" />
@@ -43,7 +43,7 @@
             android:textSize="12sp" />
 
         <!-- ============ POOLS ============ -->
-        <TextView style="@style/SectionHeader"
+        <TextView android:id="@+id/sectionPools" style="@style/SectionHeader"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="POOLS" />
         <TextView
@@ -75,7 +75,7 @@
             android:letterSpacing="0.04" />
 
         <!-- ============ MONITORING ============ -->
-        <TextView style="@style/SectionHeader"
+        <TextView android:id="@+id/sectionMonitoring" style="@style/SectionHeader"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="MONITORING" />
 

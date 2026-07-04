@@ -19,23 +19,42 @@
             android:paddingTop="14dp"
             android:paddingBottom="8dp">
 
-            <!-- Hashrate hero panel -->
+            <!-- Hashrate hero panel. Background is rebuilt at runtime
+                 (Palette.heroCard) so it follows the algorithm's coin color;
+                 the XML drawable is only the pre-first-render fallback. -->
             <LinearLayout
+                android:id="@+id/heroCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/hero_card"
                 android:paddingHorizontal="20dp"
-                android:paddingVertical="16dp">
+                android:paddingVertical="18dp">
+
+                <!-- Algorithm badge — coin-tinted rounded chip. -->
+                <TextView
+                    android:id="@+id/algoText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:gravity="center"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="5dp"
+                    android:text="—"
+                    android:textColor="@color/text"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.1" />
 
                 <TextView
                     android:id="@+id/hashrateText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
                     android:gravity="center"
                     android:text="0.00 MH/s"
                     android:textColor="@color/accent"
-                    android:textSize="40sp"
+                    android:textSize="42sp"
                     android:textStyle="bold"
                     android:fontFamily="sans-serif-medium" />
 
@@ -49,20 +68,10 @@
                     android:letterSpacing="0.2" />
 
                 <TextView
-                    android:id="@+id/algoText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:gravity="center"
-                    android:text="—"
-                    android:textColor="@color/text"
-                    android:textSize="17sp"
-                    android:textStyle="bold" />
-
-                <TextView
                     android:id="@+id/poolText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
                     android:gravity="center"
                     android:text=""
                     android:textColor="@color/textdim"
