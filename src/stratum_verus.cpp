@@ -129,7 +129,13 @@ void diff_to_target_verus(uint32_t *target, double diff)
 
     for (k = 6; k > 0 && diff > 1.0; k--)
         diff /= 4294967296.0;
-    m = (uint64_t)(4294901760.0 / diff);
+    /* Clamp in double space before the uint64_t cast — an out-of-range
+     * double-to-unsigned cast is UB (see diff_to_target in stratum.cpp). */
+    double m_value = 4294901760.0 / diff;
+    if (m_value >= 18446744073709551616.0 /* 2^64 */)
+        m = UINT64_MAX;
+    else
+        m = (uint64_t)m_value;
     if (m == 0 && k == 6)
         memset(target, 0xff, 32);
     else {

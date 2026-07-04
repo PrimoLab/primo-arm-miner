@@ -249,7 +249,18 @@ void diff_to_target(uint32_t *target, double diff)
     for (target_word = 6; target_word > 0 && remaining_diff > 1.0; target_word--)
         remaining_diff /= difficulty_word_base;
 
-    compact_word = (uint64_t)(compact_target_base / remaining_diff);
+    /* Clamp in double space before the uint64_t cast: casting an out-of-range
+     * double to an unsigned integer type is UB (same class as the adaptive
+     * chunk-size clamp in miner.cpp). Reachable only for absurdly small
+     * diffs (< ~2.4e-10 after scaling — scrypt divides the pool diff by
+     * 65536, so a hostile/broken pool could get here); saturating to
+     * UINT64_MAX yields the easiest representable target, which is the
+     * right degenerate behavior. */
+    double compact_value = compact_target_base / remaining_diff;
+    if (compact_value >= 18446744073709551616.0 /* 2^64 */)
+        compact_word = UINT64_MAX;
+    else
+        compact_word = (uint64_t)compact_value;
     if (compact_word == 0 && target_word == 6) {
         memset(target, 0xff, 32);
         return;
