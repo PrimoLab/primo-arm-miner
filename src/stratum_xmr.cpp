@@ -168,6 +168,12 @@ static void build_xmr_work(const struct stratum_ctx *sctx, struct work *new_work
              sctx->job.job_id ? sctx->job.job_id : "");
     new_work->targetdiff = sctx->job.diff;
     new_work->height = sctx->job.height;
+    /* Like the standard/Verus builders, stamp which pool this work belongs
+     * to: submit_ready_share() routes the share through pools[work->pooln].
+     * Without this every RandomX share went through pool 0's stratum context
+     * — silently dropped as unauthenticated whenever the active pool was a
+     * failover pool or (once enabled) the hidden dev fee slot. */
+    new_work->pooln = (uint8_t)sctx->pooln;
     new_work->xnonce2_len = 0;
 }
 
