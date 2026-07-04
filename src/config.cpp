@@ -286,7 +286,7 @@ static void exit_with_usage(int status)
     } else {
         printf("Usage: %s [OPTIONS]\n", PACKAGE_NAME);
         printf("Options:\n");
-        printf("  -a, --algo=ALGO       Algorithm: verus, sha256d (BTC), scrypt (LTC)\n");
+        printf("  -a, --algo=ALGO       Algorithm: verus, sha256d (BTC), scrypt (LTC), randomx (XMR)\n");
         printf("  -o, --url=URL         Pool URL (stratum+tcp://...)\n");
         printf("  -O, --userpass=U:P    Username:password pair\n");
         printf("  -u, --user=USERNAME   Wallet address + worker name\n");
@@ -310,6 +310,7 @@ static void exit_with_usage(int status)
         printf("  verus    - VerusHash v2.2 (VRSC)\n");
         printf("  sha256d  - Double SHA256 (BTC, BCH)\n");
         printf("  scrypt   - Scrypt N=1024 (LTC, DOGE)\n");
+        printf("  randomx  - RandomX rx/0 (XMR) — aliases: rx, rx/0, xmr, monero\n");
     }
     exit(status);
 }
@@ -667,7 +668,7 @@ static void apply_option(int key, const char *arg)
     case 'a':
         if (!parse_algorithm_name(arg, &parsed_algo)) {
             applog(LOG_ERR, "Unknown algorithm: %s", arg);
-            applog(LOG_ERR, "Supported: verus, sha256d, scrypt");
+            applog(LOG_ERR, "Supported: verus, sha256d, scrypt, randomx");
             exit_with_usage(1);
         }
         opt_algo = parsed_algo;
