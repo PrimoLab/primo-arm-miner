@@ -403,6 +403,10 @@ void pool_init_defaults(void);
 bool api_start_service(void);
 void api_stop_service(void);
 void miner_get_api_snapshot(struct miner_api_snapshot *snapshot);
+// Highest max cpufreq (MHz) across all detected cores. Takes the same
+// topology lock cpu_topology_refresh() writes under, so callers outside
+// miner.cpp (e.g. api.cpp) don't need direct access to g_cpu_cores/g_num_cpus.
+int miner_topology_max_cpu_freq_mhz(void);
 
 // Stratum functions
 bool stratum_connect(struct stratum_ctx *sctx);

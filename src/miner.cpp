@@ -388,8 +388,21 @@ static void miner_check_bigcore_freq_cap(void)
     int cpu = sched_getcpu();
     if (cpu < 0)
         return;
+
+    /* find_cpu_core_info() walks g_cpu_cores[]/g_num_cpus, which
+     * cpu_topology_refresh() rewrites under g_topology_lock from a
+     * concurrent repin tick on another thread — snapshot the fields we
+     * need while holding the same lock instead of dereferencing `core`
+     * unprotected. */
+    pthread_mutex_lock(&g_topology_lock);
     cpu_core_info_t *core = find_cpu_core_info(cpu);
-    if (!core || !core->is_big || core->max_freq_khz <= 0)
+    bool is_big = core && core->is_big;
+    int max_freq_khz = core ? core->max_freq_khz : 0;
+    int implementer = core ? core->implementer : 0;
+    int part_number = core ? core->part_number : 0;
+    pthread_mutex_unlock(&g_topology_lock);
+
+    if (!is_big || max_freq_khz <= 0)
         return; /* not on a big core (or unknown) — let another thread audit */
 
     int cur = get_cpu_cur_freq_khz(cpu);
@@ -399,7 +412,7 @@ static void miner_check_bigcore_freq_cap(void)
     /* 70% of max: a genuinely loaded core settles near 100%; a uclamp/cpuset
      * cap typically lands far lower (~40-55% of a ~2.8 GHz prime core). The gap
      * is wide enough that 70% does not false-positive on governor ramp jitter. */
-    if ((long)cur * 100 >= (long)core->max_freq_khz * 70)
+    if ((long)cur * 100 >= (long)max_freq_khz * 70)
         return;
 
     /* Capped. Claim the one-shot just before logging so concurrent auditors do
@@ -409,8 +422,8 @@ static void miner_check_bigcore_freq_cap(void)
 
     applog(LOG_WARNING,
            "CPU %d (%s) only %d/%d MHz under sustained load — big cores appear frequency-capped",
-           cpu, cpu_part_name(core->implementer, core->part_number),
-           cur / 1000, core->max_freq_khz / 1000);
+           cpu, cpu_part_name(implementer, part_number),
+           cur / 1000, max_freq_khz / 1000);
 #ifdef __ANDROID__
     applog(LOG_WARNING,
            "This is Android throttling a non-foreground app (uclamp.max / cpuset tier), not the miner. "
@@ -475,10 +488,17 @@ void miner_thread_repin_tick(int thread_id)
      * a thread already sitting on its ideal core (the common case after a
      * hotplug wipe), so flapping cores don't spam the log. */
     if (prev_cpu != ideal_cpu) {
+        /* Re-acquire the topology lock for this lookup rather than reusing
+         * the read taken above before the unlock — a concurrent repin tick
+         * on another thread may be mid-refresh right now. */
+        pthread_mutex_lock(&g_topology_lock);
         cpu_core_info_t *core = find_cpu_core_info(ideal_cpu);
+        bool core_known = core != NULL;
+        bool core_is_big = core && core->is_big;
+        pthread_mutex_unlock(&g_topology_lock);
         applog(LOG_INFO, "Thread %d: re-pinned to CPU %d%s after it became available",
                thread_id, ideal_cpu,
-               core ? (core->is_big ? " (big)" : " (LITTLE)") : "");
+               core_known ? (core_is_big ? " (big)" : " (LITTLE)") : "");
     }
 }
 
@@ -1051,16 +1071,30 @@ void miner_get_api_snapshot(struct miner_api_snapshot *snapshot)
             thread_stats->rejected = miner_thread_rejected_load(&thr_info[thread_index]);
             thread_stats->cpu_id = cpu_id;
 
+            pthread_mutex_lock(&g_topology_lock);
             core = find_cpu_core_info(cpu_id);
             if (core) {
                 thread_stats->cpu_max_freq_mhz = core->max_freq_khz / 1000;
                 thread_stats->cpu_is_big = core->is_big;
             }
+            pthread_mutex_unlock(&g_topology_lock);
 
             snapshot->total_hashes_done += thread_stats->hashes_done_total;
         }
     }
     pthread_mutex_unlock(&stats_lock);
+}
+
+int miner_topology_max_cpu_freq_mhz(void)
+{
+    pthread_mutex_lock(&g_topology_lock);
+    int max_freq_khz = 0;
+    for (int i = 0; i < g_num_cpus; i++) {
+        if (g_cpu_cores[i].max_freq_khz > max_freq_khz)
+            max_freq_khz = g_cpu_cores[i].max_freq_khz;
+    }
+    pthread_mutex_unlock(&g_topology_lock);
+    return max_freq_khz / 1000;
 }
 
 static bool work_is_new_job(const struct work *current_work,

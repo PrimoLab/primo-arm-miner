@@ -207,19 +207,6 @@ static void api_collect_history_sample(time_t now)
     g_api_last_history_sample = now;
 }
 
-static int api_find_max_cpu_freq_mhz(void)
-{
-    int max_freq_mhz = 0;
-
-    for (int i = 0; i < g_num_cpus; i++) {
-        int freq_mhz = g_cpu_cores[i].max_freq_khz / 1000;
-        if (freq_mhz > max_freq_mhz)
-            max_freq_mhz = freq_mhz;
-    }
-
-    return max_freq_mhz;
-}
-
 static const char *api_get_os_name(char *buffer, size_t buffer_size)
 {
     struct utsname uts;
@@ -997,7 +984,7 @@ static char *build_hwinfo_response(char *out, size_t out_size, const char *param
     snprintf(out, out_size, "OS=%s;NVDRIVER=%s;CPUS=%d;CPUTEMP=%d;CPUFREQ=%d|",
              api_get_os_name(os_name, sizeof(os_name)), "",
              g_num_cpus > 0 ? g_num_cpus : opt_n_threads,
-             cpu_temp > 0 ? cpu_temp : 0, api_find_max_cpu_freq_mhz());
+             cpu_temp > 0 ? cpu_temp : 0, miner_topology_max_cpu_freq_mhz());
     return out;
 }
 
