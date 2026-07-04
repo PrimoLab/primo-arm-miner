@@ -1114,7 +1114,6 @@ int scanhash_sha256d(int thr_id, struct work *work, uint32_t max_hashes,
     uint32_t midstate[8];
     uint32_t n = pdata[19];  /* Nonce is at offset 76 (word 19) */
     uint32_t first_nonce = n;
-    uint32_t target7_be = __builtin_bswap32(ptarget[7]);
 
     work->valid_nonces = 0;
 
@@ -1210,7 +1209,7 @@ int scanhash_sha256d(int thr_id, struct work *work, uint32_t max_hashes,
         }
 
         /* Check nonce A */
-        if (stateA[7] <= target7_be) {
+        if (__builtin_bswap32(stateA[7]) <= ptarget[7]) {
             uint32_t hash_le[8];
             for (int i = 0; i < 8; i++)
                 hash_le[i] = __builtin_bswap32(stateA[i]);
@@ -1220,7 +1219,7 @@ int scanhash_sha256d(int thr_id, struct work *work, uint32_t max_hashes,
         }
 
         /* Check nonce B */
-        if (stateB[7] <= target7_be) {
+        if (__builtin_bswap32(stateB[7]) <= ptarget[7]) {
             uint32_t hash_le[8];
             for (int i = 0; i < 8; i++)
                 hash_le[i] = __builtin_bswap32(stateB[i]);
@@ -1249,7 +1248,7 @@ int scanhash_sha256d(int thr_id, struct work *work, uint32_t max_hashes,
         memcpy(state, H256_INIT, 32);
         sha256_transform_u32(state, W2);
 
-        if (state[7] <= target7_be) {
+        if (__builtin_bswap32(state[7]) <= ptarget[7]) {
             uint32_t hash_le[8];
             for (int i = 0; i < 8; i++)
                 hash_le[i] = __builtin_bswap32(state[i]);
