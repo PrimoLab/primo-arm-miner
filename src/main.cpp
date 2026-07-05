@@ -241,9 +241,17 @@ static void *benchmark_thread(void *userdata)
         work.data[nonce_offset] = nonce_start;
 
         // Mine a fixed count of nonces so the per-thread benchmark loop stays
-        // stable. RandomX is 4-5 orders of magnitude slower per hash, so its
-        // batch shrinks to keep the hashrate display responsive (~5s).
-        uint32_t batch_size = (opt_algo == ALGO_RANDOMX) ? 500 : 500000;
+        // stable, sized per algorithm so a batch completes within a few
+        // seconds — the hashrate is only sampled BETWEEN scanhash calls, so
+        // an oversized batch shows 0.00 H/s until the first one finishes
+        // (scrypt at ~2-5 kH/s/thread took ~100 s through the old shared
+        // 500k batch; RandomX is 4-5 orders of magnitude slower still).
+        uint32_t batch_size;
+        switch (opt_algo) {
+        case ALGO_RANDOMX: batch_size = 500;    break;  /* ~10-200 H/s/thread */
+        case ALGO_SCRYPT:  batch_size = 10000;  break;  /* ~2-5 kH/s/thread */
+        default:           batch_size = 500000; break;  /* verus/sha256d: MH/s */
+        }
         scanhash_dispatch(thr_id, &work, batch_size, &hashes_done);
 
         nonce_start = work.data[nonce_offset];
