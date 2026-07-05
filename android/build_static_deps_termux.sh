@@ -67,9 +67,11 @@ if [ ! -f "$SDEPS/lib/libcurl.a" ] || \
     wget -q "https://curl.se/download/curl-$CURL_VER.tar.gz"
   rm -rf "curl-$CURL_VER"; tar xf "curl-$CURL_VER.tar.gz"
   cd "curl-$CURL_VER"
+  # --with-mbedtls IS the TLS backend selector; do NOT also pass --without-ssl
+  # (curl's configure rejects the pair as conflicting).
   ./configure --prefix="$SDEPS" \
     --enable-static --disable-shared \
-    --without-ssl --without-gnutls --with-mbedtls="$SDEPS" \
+    --without-gnutls --with-mbedtls="$SDEPS" \
     --without-ca-bundle --without-ca-path \
     --without-nghttp2 --without-ngtcp2 --without-libssh2 --without-librtmp \
     --without-brotli --without-zstd --without-zlib \
