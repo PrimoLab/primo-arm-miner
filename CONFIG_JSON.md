@@ -41,7 +41,7 @@ Each entry in `pools` is an object. Supported keys:
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `name` | string | Friendly pool label used by the API and logs. |
-| `url` | string | Pool stratum URL. Required for the pool entry to be usable. |
+| `url` | string | Pool stratum URL. Required for the pool entry to be usable. `stratum+tcp://` is plain TCP; `stratum+ssl://` (or `stratum+tcps://`) enables TLS. |
 | `user` | string | Pool-specific username or wallet. Overrides top-level `user`. |
 | `pass` | string | Pool-specific password. Overrides top-level `pass`. |
 | `timeout` | integer | Pool-specific network timeout in seconds. Overrides top-level `timeout`; `0` (or omitting the key) means "use the global timeout". |

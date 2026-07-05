@@ -46,7 +46,8 @@ sudo apk add curl jansson
 - **Hotplug-resilient core pinning** — pins are chosen from the platform-allowed cpuset and reconciled continuously; threads adopt cores that Android parks/wakes at runtime instead of losing their pins
 - **RandomX (Monero)** — vendored reference library (tevador/RandomX, BSD-3) with the aarch64 JIT; fast mode (~2.1 GiB dataset) with automatic light-mode fallback (256 MiB) on low-RAM devices
 - **ccminer-compatible control surface** — same CLI flags, JSON config format, and monitoring API
-- **Full stratum support** — standard (SHA256d/scrypt), Verus/equihash, and Monero (RandomX) dialects, multi-pool failover
+- **Full stratum support** — standard (SHA256d/scrypt), Verus/equihash, and Monero (RandomX) dialects, multi-pool failover, TLS (`stratum+ssl://`) via the system libcurl with no extra TLS library linked
+- **Self-verifying** — every algorithm cross-checks its optimized kernels (including the hand-written assembly) against reference implementations at startup and refuses to mine on mismatch; `make test` runs the full harness including live share round-trips against a local mock pool
 - **Tiny footprint** — a single ~490 KB binary (~260 KB built with `PRIMO_RANDOMX=0`), two runtime libraries (libcurl, libjansson)
 
 ## Performance
@@ -107,6 +108,10 @@ make
 
 # or build with CMake into ./build and refresh the repo-root binary
 ./build.sh
+
+# run the test harness: per-algo self-tests + end-to-end share round-trips
+# against a local mock stratum pool (plain TCP and TLS), ~45 s
+make test
 ```
 
 If you are switching branches, changing toolchains, or recovering from an older mixed-object worktree, use:
@@ -192,6 +197,11 @@ runtime. (To force the portable C CLHash path for debugging: `VERUS_ASM=0`.)
 
 # Mine Monero (RandomX; aliases: randomx / rx / xmr / monero)
 ./primo-arm-miner -a randomx -o stratum+tcp://pool.supportxmr.com:3333 -u XMR_WALLET -p x
+
+# TLS pools: use stratum+ssl:// (stratum+tcps:// also accepted). Requires a
+# TLS-enabled libcurl (any stock distro libcurl qualifies); certificates are
+# not verified, matching common miner behavior — pool certs are self-signed.
+./primo-arm-miner -a randomx -o stratum+ssl://pool.supportxmr.com:443 -u XMR_WALLET -p x
 ```
 
 ### JSON Config File (ccminer-compatible)
@@ -363,6 +373,12 @@ cores the same way this release was tuned on real ARMv8 silicon:
 - **VRSC**: `RDArJkrPSKPhX8zwUJHLu2SJWrL4GwCgKz`
 - **BTC**: `15nR6PuUkjTyjv9dnkYd2GbjbgiMxs4dLi`
 - **LTC**: `ltc1qguj48xprktyeqm4dqrje5cr7f8g76e0mvrdjh6`
+
+## Internals
+
+Architecture, locking rules, per-algorithm invariants, the self-test matrix,
+and the Android pinning story are documented for contributors in
+[`docs/INTERNALS.md`](docs/INTERNALS.md).
 
 ## License
 
