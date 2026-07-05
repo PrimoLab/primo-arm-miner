@@ -1072,6 +1072,74 @@ void sha256d_dual_fallback(
     sha256_transform_u32_dual(stateA_out, W2A, stateB_out, W2B);
 }
 
+/* Cross-check the dual-nonce mining path against the straightforward
+ * sha256d_neon() over full 80-byte headers. This is the ONLY test that ever
+ * executes sha256d_dual_asm (and the intrinsics/sw dual fallback): the "abc"
+ * vectors in sha256_neon_selftest cover the generic C path the reference
+ * below uses, but not the hand asm, the midstate split, or the W1/W2
+ * pre-built message-word layout the scan loop feeds them. Mirrors how
+ * scanhash_sha256d builds midstate/W1/W2_pad, so a regression in that
+ * contract (or a miscompiled/broken .S) refuses to mine instead of
+ * silently submitting garbage. Returns 0 on success. */
+int sha256d_scan_selftest(void)
+{
+    uint8_t header[80], headerB[80];
+    uint8_t refA[32], refB[32], out[32];
+    uint32_t midstate[8], W1[16];
+    uint32_t stateA[8], stateB[8];
+    static const uint32_t W2_pad[8] = {
+        0x80000000, 0, 0, 0, 0, 0, 0, 0x00000100
+    };
+    int i;
+
+    /* Deterministic synthetic header; nonce B differs from nonce A. */
+    for (i = 0; i < 80; i++)
+        header[i] = (uint8_t)(i * 7 + 1);
+    const uint32_t nonceA = be32dec(header + 76);
+    const uint32_t nonceB = nonceA ^ 0xA5A5A5A5u;
+    memcpy(headerB, header, 80);
+    be32enc(headerB + 76, nonceB);
+
+    /* Reference digests via the plain full-header path. */
+    sha256d_neon(header, 80, refA);
+    sha256d_neon(headerB, 80, refB);
+
+    /* Build midstate + message words exactly like scanhash_sha256d. */
+    sha256_midstate_neon(header, midstate);
+    memset(W1, 0, sizeof(W1));
+    W1[0] = be32dec(header + 64);
+    W1[1] = be32dec(header + 68);
+    W1[2] = be32dec(header + 72);
+    W1[4] = 0x80000000;
+    W1[15] = 0x00000280;
+
+    /* Portable dual path (intrinsics dual when SHA2 ISA is up, sw otherwise). */
+    sha256d_dual_fallback(midstate, W1, W2_pad, nonceA, nonceB, stateA, stateB);
+    for (i = 0; i < 8; i++)
+        be32enc(out + i * 4, stateA[i]);
+    if (memcmp(out, refA, 32) != 0)
+        return -1;
+    for (i = 0; i < 8; i++)
+        be32enc(out + i * 4, stateB[i]);
+    if (memcmp(out, refB, 32) != 0)
+        return -2;
+
+    /* Hand-tuned assembly path (the one live mining actually runs). */
+    if (sha256_has_crypto()) {
+        sha256d_dual_asm(midstate, W1, W2_pad, nonceA, nonceB, stateA, stateB);
+        for (i = 0; i < 8; i++)
+            be32enc(out + i * 4, stateA[i]);
+        if (memcmp(out, refA, 32) != 0)
+            return -3;
+        for (i = 0; i < 8; i++)
+            be32enc(out + i * 4, stateB[i]);
+        if (memcmp(out, refB, 32) != 0)
+            return -4;
+    }
+
+    return 0;
+}
+
 /* Record a found SHA256d share. `state` is the raw big-endian SHA256d output,
  * `hash_le` its little-endian form. Cold path (only runs on a winning nonce);
  * factored from the previously-duplicated nonce-A/B blocks. */

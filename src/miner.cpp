@@ -27,6 +27,7 @@
 #include "randomx_algo.h"
 #endif
 #include "scrypt_neon.h"
+#include "sha256_neon.h"
 #include "stratum_internal.h"
 
 // Global state
@@ -1020,6 +1021,25 @@ bool miner_init_algorithm_runtime(bool *algorithm_ready_out)
     if (opt_algo == ALGO_VERUS) {
         algorithm_ready = verus_init_runtime();
     } else if (opt_algo == ALGO_SHA256D) {
+        int selftest_result;
+
+        /* Vector test of the generic C path first (it is the reference the
+         * scan-path cross-check below hashes against), then the dual-nonce
+         * mining path itself — the only place sha256d_dual_asm is ever
+         * validated. Refuse to mine on mismatch rather than submit garbage. */
+        selftest_result = sha256_neon_selftest();
+        if (selftest_result != 0) {
+            applog(LOG_ERR, "SHA256 self-test FAILED (error %d)!", selftest_result);
+            goto out;
+        }
+
+        selftest_result = sha256d_scan_selftest();
+        if (selftest_result != 0) {
+            applog(LOG_ERR, "SHA256d mining-path self-test FAILED (error %d)!", selftest_result);
+            goto out;
+        }
+
+        applog(LOG_INFO, "SHA256d self-test passed");
         algorithm_ready = true;
     } else if (opt_algo == ALGO_SCRYPT) {
         int selftest_result;

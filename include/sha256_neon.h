@@ -125,6 +125,14 @@ int sha256_has_crypto(void);
  */
 int sha256_neon_selftest(void);
 
+/**
+ * sha256d_scan_selftest - Cross-check the dual-nonce mining path (hand-asm
+ * sha256d_dual_asm when the SHA2 ISA is present, plus the portable dual
+ * fallback) against sha256d_neon() over full 80-byte headers.
+ * Returns 0 on success, negative error code on mismatch.
+ */
+int sha256d_scan_selftest(void);
+
 #ifdef __cplusplus
 }
 #endif
