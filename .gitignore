@@ -15,7 +15,7 @@
 # Local development files (not part of the public tree)
 /CLAUDE.md
 /docs/
-/tests/
+/tests/dev/
 /test_*.sh
 /snapshots/
 /.claude/

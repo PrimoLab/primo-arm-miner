@@ -166,9 +166,15 @@ OBJECTS = $(SOURCES_C:.c=.o) $(SOURCES_CPP:.cpp=.o) $(SOURCES_ASM:.S=.o)
 
 TARGET = primo-arm-miner
 
-.PHONY: all clean
+.PHONY: all clean test
 
 all: $(TARGET)
+
+# Repo test harness: per-algo init self-tests + verus x2/fused/asm runtime
+# cross-check + end-to-end share round-trips against a local mock stratum
+# pool (plain TCP and, when libcurl has TLS, stratum+ssl). ~45 s.
+test: $(TARGET)
+	@bash tests/run_tests.sh ./$(TARGET)
 
 $(TARGET): $(OBJECTS) $(RANDOMX_LINK)
 	@echo "Linking $(TARGET)..."
