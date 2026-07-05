@@ -410,50 +410,11 @@ static void pbkdf2_sha256(const uint8_t *password, size_t password_len,
 }
 
 
-/*============================================================================
- * Salsa20/8 Core - Correct implementation per RFC 7914 / Bernstein spec
- *
- * Column round operates on diagonal groups:
- *   QR(0,4,8,12), QR(5,9,13,1), QR(10,14,2,6), QR(15,3,7,11)
- * Row round operates on row groups:
- *   QR(0,1,2,3), QR(5,6,7,4), QR(10,11,8,9), QR(15,12,13,14)
- *============================================================================*/
-
-static inline uint32_t rotl32(uint32_t x, int n) {
-    return (x << n) | (x >> (32 - n));
-}
-
-#define QR(a, b, c, d) do { \
-    b ^= rotl32(a + d,  7); \
-    c ^= rotl32(b + a,  9); \
-    d ^= rotl32(c + b, 13); \
-    a ^= rotl32(d + c, 18); \
-} while(0)
-
-static HOT void salsa20_8_neon_inline(uint32_t B[16]) {
-    uint32_t x[16];
-    int i;
-    for (i = 0; i < 16; i++) x[i] = B[i];
-
-    for (i = 0; i < 8; i += 2) {
-        /* Column round */
-        QR(x[ 0], x[ 4], x[ 8], x[12]);
-        QR(x[ 5], x[ 9], x[13], x[ 1]);
-        QR(x[10], x[14], x[ 2], x[ 6]);
-        QR(x[15], x[ 3], x[ 7], x[11]);
-        /* Row round */
-        QR(x[ 0], x[ 1], x[ 2], x[ 3]);
-        QR(x[ 5], x[ 6], x[ 7], x[ 4]);
-        QR(x[10], x[11], x[ 8], x[ 9]);
-        QR(x[15], x[12], x[13], x[14]);
-    }
-
-    for (i = 0; i < 16; i++) B[i] += x[i];
-}
-
-void salsa20_8_neon(uint32_t B[16]) {
-    salsa20_8_neon_inline(B);
-}
+/* Scalar Salsa20/8 lives in scrypt_blockmix_asm.S (fused with the BlockMix
+ * XOR); the 4-lane NEON variant is salsa208_soa below. The former standalone
+ * C Salsa + generic r>1 BlockMix/ROMix fallback were removed as unreachable:
+ * the miner is hardwired to r=1 (Litecoin), so every live path goes through
+ * the asm or the SoA kernel. */
 
 /*============================================================================
  * Specialized r=1 ROMix — eliminates Y buffer and rearrangement
@@ -718,127 +679,25 @@ static HOT void scrypt_romix_soa4(uint32_t *Bl[4], uint32_t *Vl[4], int N) {
 }
 
 /*============================================================================
- * Optimized scryptBlockMix with prefetching
- *============================================================================*/
-
-HOT void scrypt_block_mix_neon(uint32_t *B, uint32_t *Y, int r) {
-    uint32_t X[16] __attribute__((aligned(64)));
-    uint32x4_t x0, x1, x2, x3, b0, b1, b2, b3;
-    int i;
-    
-    /* X = B[2*r - 1] (last 64-byte block) */
-    uint32_t *last_block = B + (2 * r - 1) * 16;
-    x0 = vld1q_u32(&last_block[0]);  x1 = vld1q_u32(&last_block[4]);
-    x2 = vld1q_u32(&last_block[8]);  x3 = vld1q_u32(&last_block[12]);
-    
-    for (i = 0; i < 2 * r; i++) {
-        uint32_t *Bi = B + i * 16;
-        
-        /* Prefetch next block */
-        if (i + 1 < 2 * r)
-            __builtin_prefetch(B + (i + 1) * 16, 0, 3);
-        
-        /* X = X XOR B[i] */
-        b0 = vld1q_u32(&Bi[0]);  b1 = vld1q_u32(&Bi[4]);
-        b2 = vld1q_u32(&Bi[8]);  b3 = vld1q_u32(&Bi[12]);
-        x0 = veorq_u32(x0, b0);  x1 = veorq_u32(x1, b1);
-        x2 = veorq_u32(x2, b2);  x3 = veorq_u32(x3, b3);
-        
-        /* Store to X for Salsa20/8 */
-        vst1q_u32(&X[0], x0);   vst1q_u32(&X[4], x1);
-        vst1q_u32(&X[8], x2);   vst1q_u32(&X[12], x3);
-        
-        /* X = Salsa20/8(X) */
-        salsa20_8_neon_inline(X);
-        
-        /* Reload and store to Y */
-        x0 = vld1q_u32(&X[0]);  x1 = vld1q_u32(&X[4]);
-        x2 = vld1q_u32(&X[8]);  x3 = vld1q_u32(&X[12]);
-        uint32_t *Yi = Y + i * 16;
-        vst1q_u32(&Yi[0], x0);  vst1q_u32(&Yi[4], x1);
-        vst1q_u32(&Yi[8], x2);  vst1q_u32(&Yi[12], x3);
-    }
-    
-    /* Rearrange: even blocks first, then odd blocks */
-    for (i = 0; i < r; i++) {
-        memcpy(B + i * 16, Y + (2 * i) * 16, 64);
-        memcpy(B + (r + i) * 16, Y + (2 * i + 1) * 16, 64);
-    }
-}
-
-/*============================================================================
- * Optimized scryptROMix with prefetching
- *============================================================================*/
-
-HOT void scrypt_romix_neon(uint32_t *B, uint32_t *V, uint32_t *Y, int N, int r) {
-    int block_size = 32 * r;  /* words */
-    int block_bytes = block_size * 4;
-    int i, j, k;
-    
-    /* First loop: fill V with sequential access (good for cache) */
-    for (i = 0; i < N; i++) {
-        /* Prefetch destination for next iteration */
-        if (i + 1 < N)
-            __builtin_prefetch(V + (i + 1) * block_size, 1, 0);
-        
-        memcpy(V + i * block_size, B, block_bytes);
-        scrypt_block_mix_neon(B, Y, r);
-    }
-    
-    /* Second loop: random access (memory-hard) */
-    for (i = 0; i < N; i++) {
-        /* j = Integerify(X) mod N */
-        j = B[block_size - 16] & (N - 1);
-        uint32_t *Vj = V + j * block_size;
-        
-        /* Prefetch the random V block */
-        __builtin_prefetch(Vj, 0, 0);
-        __builtin_prefetch(Vj + 16, 0, 0);
-        
-        /* X = X XOR V[j] using NEON */
-        for (k = 0; k < block_size; k += 16) {
-            uint32x4_t b0 = vld1q_u32(&B[k]);
-            uint32x4_t b1 = vld1q_u32(&B[k + 4]);
-            uint32x4_t b2 = vld1q_u32(&B[k + 8]);
-            uint32x4_t b3 = vld1q_u32(&B[k + 12]);
-            uint32x4_t v0 = vld1q_u32(&Vj[k]);
-            uint32x4_t v1 = vld1q_u32(&Vj[k + 4]);
-            uint32x4_t v2 = vld1q_u32(&Vj[k + 8]);
-            uint32x4_t v3 = vld1q_u32(&Vj[k + 12]);
-            vst1q_u32(&B[k], veorq_u32(b0, v0));
-            vst1q_u32(&B[k + 4], veorq_u32(b1, v1));
-            vst1q_u32(&B[k + 8], veorq_u32(b2, v2));
-            vst1q_u32(&B[k + 12], veorq_u32(b3, v3));
-        }
-        
-        scrypt_block_mix_neon(B, Y, r);
-    }
-}
-
-/*============================================================================
  * Main scrypt and Public API
  *============================================================================*/
 
+/* r must be 1: the generic r>1 BlockMix/ROMix fallback was removed as
+ * unreachable (the miner is hardwired to Litecoin's N=1024, r=1, p=1). */
 static void scrypt_core(const uint8_t *password, size_t password_len,
                         const uint8_t *salt, size_t salt_len,
                         int N, int r, int p, uint8_t *dk, size_t dk_len,
                         uint8_t *scratchpad) {
     size_t block_size = 128 * r;
     size_t B_size = p * block_size;
-    size_t V_size = N * block_size;
     uint8_t *B = scratchpad;
     uint8_t *V = scratchpad + B_size;
-    uint8_t *Y = scratchpad + B_size + V_size;
-    
+
     pbkdf2_sha256(password, password_len, salt, salt_len, 1, B, B_size);
 
     for (int i = 0; i < p; i++) {
-        if (r == 1)
-            scrypt_romix_r1_fast((uint32_t *)(B + i * block_size),
-                                 (uint32_t *)V, N);
-        else
-            scrypt_romix_neon((uint32_t *)(B + i * block_size),
-                              (uint32_t *)V, (uint32_t *)Y, N, r);
+        scrypt_romix_r1_fast((uint32_t *)(B + i * block_size),
+                             (uint32_t *)V, N);
     }
 
     pbkdf2_sha256(password, password_len, B, B_size, 1, dk, dk_len);
@@ -918,17 +777,12 @@ static void scrypt_core_soa4(const uint8_t *pass[4], uint8_t *hash[4],
         pbkdf2_sha256(pass[l], 80, (uint8_t *)Bl[l], block_sz, 1, hash[l], 32);
 }
 
-/* Scratchpad size for dual mode: 2 * (B + V + Y) = 2 * (128 + 131072 + 128) */
-#define SCRYPT_DUAL_SCRATCHPAD_SIZE (2 * (SCRYPT_BLOCK_SIZE + SCRYPT_N * SCRYPT_BLOCK_SIZE + SCRYPT_BLOCK_SIZE))
-
-/* Scratchpad size for SoA-4 mode: 4 * (B + V) — the larger of the two,
- * so per-thread scratchpads are sized for it. */
+/* Scratchpad size for SoA-4 mode: 4 * (B + V) — the largest layout (dual
+ * mode fits inside), so per-thread scratchpads are sized for it. */
 #define SCRYPT_SOA4_SCRATCHPAD_SIZE (4 * (SCRYPT_BLOCK_SIZE + SCRYPT_N * SCRYPT_BLOCK_SIZE))
 
 static uint8_t **thread_scratchpads = NULL;
 static int num_scratchpads = 0;
-
-int scrypt_has_neon(void) { return 1; }
 
 int scrypt_init(int num_threads) {
     if (thread_scratchpads) scrypt_cleanup();
@@ -1043,31 +897,6 @@ int scrypt_selftest(void) {
     return 0; /* Success */
 }
 
-int scrypt_hash(const uint8_t *input, uint8_t *output, uint8_t *scratchpad) {
-    uint8_t *sp = scratchpad;
-    int allocated = 0;
-
-    if (!sp) {
-        size_t scratchpad_size = SCRYPT_P * SCRYPT_BLOCK_SIZE +
-                                 SCRYPT_N * SCRYPT_BLOCK_SIZE +
-                                 SCRYPT_BLOCK_SIZE;
-        if (posix_memalign((void **)&sp, 64, scratchpad_size) != 0)
-            return -1;
-        allocated = 1;
-    }
-
-    scrypt_core(input, 80, input, 80, SCRYPT_N, SCRYPT_R, SCRYPT_P, output, 32, sp);
-
-    if (allocated) free(sp);
-    return 0;
-}
-
-void scrypt_hash_sp(const uint8_t *input, size_t input_len,
-                    uint8_t *output, uint8_t *scratchpad) {
-    scrypt_core(input, input_len, input, input_len,
-                SCRYPT_N, SCRYPT_R, SCRYPT_P, output, 32, scratchpad);
-}
-
 void scrypt_1024_1_1_256(const uint8_t *input, uint8_t *output,
                          const uint8_t *midstate, uint8_t *scratchpad) {
     (void)midstate;
@@ -1095,7 +924,7 @@ static void scrypt_record_share(struct work *work, uint32_t *pdata,
     pdata[19] = nonce;
     work->nonces[work->valid_nonces] = nonce;
     bn_store_share_difficulty(hash, ptarget, work, work->valid_nonces);
-    applog(3, "Found nonce %08x: hash[7..4]=%08x %08x %08x %08x target[7..4]=%08x %08x %08x %08x",
+    applog(LOG_INFO, "Found nonce %08x: hash[7..4]=%08x %08x %08x %08x target[7..4]=%08x %08x %08x %08x",
            nonce, hash[7], hash[6], hash[5], hash[4],
            ptarget[7], ptarget[6], ptarget[5], ptarget[4]);
     work->valid_nonces++;

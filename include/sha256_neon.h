@@ -72,15 +72,6 @@ void sha256_neon(const uint8_t *data, size_t len, uint8_t *digest);
 void sha256d_neon(const uint8_t *data, size_t len, uint8_t *digest);
 
 /**
- * sha256d_80_neon - Optimized double SHA256 for 80-byte Bitcoin headers
- * @header: 80-byte block header
- * @digest: Output buffer (32 bytes)
- *
- * Optimized path for Bitcoin mining - uses midstate optimization.
- */
-void sha256d_80_neon(const uint8_t *header, uint8_t *digest);
-
-/**
  * sha256_midstate_neon - Compute SHA256 midstate for first 64 bytes
  * @data: First 64 bytes of block header
  * @midstate: Output midstate (32 bytes / 8 uint32_t)
@@ -89,16 +80,6 @@ void sha256d_80_neon(const uint8_t *header, uint8_t *digest);
  * so we can precompute the midstate and only hash the last 16 bytes + nonce.
  */
 void sha256_midstate_neon(const uint8_t *data, uint32_t *midstate);
-
-/**
- * sha256d_ms_neon - Double SHA256 using precomputed midstate
- * @midstate: Precomputed midstate from first 64 bytes
- * @tail: Last 16 bytes of header (bytes 64-79)
- * @digest: Output buffer (32 bytes)
- *
- * Optimized for mining - uses midstate to avoid rehashing first 64 bytes.
- */
-void sha256d_ms_neon(const uint32_t *midstate, const uint8_t *tail, uint8_t *digest);
 
 /**
  * scanhash_sha256d - Mining scan function for Bitcoin SHA256d
