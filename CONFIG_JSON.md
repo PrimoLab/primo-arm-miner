@@ -44,7 +44,7 @@ Each entry in `pools` is an object. Supported keys:
 | `url` | string | Pool stratum URL. Required for the pool entry to be usable. |
 | `user` | string | Pool-specific username or wallet. Overrides top-level `user`. |
 | `pass` | string | Pool-specific password. Overrides top-level `pass`. |
-| `timeout` | integer | Pool-specific network timeout in seconds. Overrides top-level `timeout`. |
+| `timeout` | integer | Pool-specific network timeout in seconds. Overrides top-level `timeout`; `0` (or omitting the key) means "use the global timeout". |
 | `disabled` | boolean or integer | If truthy, the pool is skipped for startup and failover. |
 
 ## Behavior Notes
