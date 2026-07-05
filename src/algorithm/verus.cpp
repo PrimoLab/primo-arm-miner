@@ -398,8 +398,16 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	const uint32_t target_word_high = ptarget[7];
 
 	/* Validate a candidate hash and record it as a share. Returns true when
-	 * the full 8-word comparison passed — i.e. the scan should stop (mirrors
-	 * the original goto-out semantics, including the slots-full case). */
+	 * the comparison passed — i.e. the scan should stop (mirrors the
+	 * original goto-out semantics, including the slots-full case).
+	 * NOTE: only chash[7] is real. haraka512_keyed_native computes just the
+	 * 4 bytes the difficulty check needs, so words 0-6 hold the buffer's
+	 * zero-init, and the hash_le_target below effectively degenerates to
+	 * chash[7] <= target[7] (its lower words compare stale zeros against
+	 * the target's 0xff filler). Correctness holds because the pool
+	 * recomputes the full hash from the submitted nonce+solution; at worst
+	 * a share with word 7 exactly equal to target[7] can be submitted when
+	 * the true lower words would have failed (~2^-32-scale reject risk). */
 	auto try_record_share = [&](uint32_t *chash, const uint8_t *nspace) -> bool {
 		/* Cheap word-7 prefilter (hoisted target) rejects almost every
 		 * hash before the full compare; only near-solutions reach it. */
@@ -491,6 +499,16 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 			scanned_hashes += 2;
 
 			if (x2_selftest) {
+				/* Compare ONLY word 7: haraka512_keyed_native computes just
+				 * the 4 bytes needed for the difficulty check (the oink70
+				 * truncated-output optimization), so words 0-6 of any hash
+				 * buffer are never written. The old full-32-byte memcmp
+				 * passed only because this stack slot happened to hold
+				 * zeros, matching candidate_hash's zero-init — a compiler
+				 * stack-layout change would have made it abort() spuriously.
+				 * Word 7 still discriminates fully: the CLHash intermediate
+				 * feeds the keyed-Haraka input AND the key selection, so any
+				 * divergence upstream changes word 7 with 1-2^-32 per hash. */
 				alignas(16) uint8_t scratch[kHashStateBytes];
 				uint32_t ref_hash[8];
 				memcpy(scratch, blockhash_half, kHashStateBytes);
@@ -498,7 +516,7 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 					(unsigned char *)ref_hash, scratch, nonce_space,
 					key_buffer, mutated_slots, mirrored_slots,
 					preserved_values, preserved_values_mirror);
-				if (memcmp(ref_hash, candidate_hash, sizeof(ref_hash))) {
+				if (ref_hash[7] != candidate_hash[7]) {
 					applog(LOG_ERR, "VERUS_X2 selftest FAILED chain A (nonce 0x%08x)", nonce_buf);
 					abort();
 				}
@@ -507,7 +525,7 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 					(unsigned char *)ref_hash, scratch, nonce_space_b,
 					key_buffer, mutated_slots, mirrored_slots,
 					preserved_values, preserved_values_mirror);
-				if (memcmp(ref_hash, candidate_b, sizeof(ref_hash))) {
+				if (ref_hash[7] != candidate_b[7]) {
 					applog(LOG_ERR, "VERUS_X2 selftest FAILED chain B (nonce 0x%08x)", nonce_buf + 1);
 					abort();
 				}
