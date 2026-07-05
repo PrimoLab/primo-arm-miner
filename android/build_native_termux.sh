@@ -82,9 +82,13 @@ echo "==> relinking static"
 #    The driver's implicit -lc++ resolves to /system/lib64/libc++.so (std::__1
 #    only) → undefined symbols. Link Termux's libc++_shared.so explicitly and
 #    suppress the implicit one; we bundle that exact lib next to the binary.
+#    mbedTLS archives follow libcurl (link order matters for static archives:
+#    curl pulls tls -> x509 -> crypto).
 "$W/clang++" $(ls src/*.o src/utils/*.o src/algorithm/*.o) \
   -flto -pthread -fuse-ld=lld -nostdlib++ \
-  "$SDEPS/lib/libcurl.a" "$SDEPS/lib/libjansson.a" $RANDOMX_LINK_LIB \
+  "$SDEPS/lib/libcurl.a" \
+  "$SDEPS/lib/libmbedtls.a" "$SDEPS/lib/libmbedx509.a" "$SDEPS/lib/libmbedcrypto.a" \
+  "$SDEPS/lib/libjansson.a" $RANDOMX_LINK_LIB \
   "$PREFIX/lib/libc++_shared.so" -lm \
   -o primo-arm-miner
 
