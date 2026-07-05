@@ -44,9 +44,13 @@ if [ ! -f "$SDEPS/lib/libmbedtls.a" ]; then
     wget -q "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MBEDTLS_VER/mbedtls-$MBEDTLS_VER.tar.bz2"
   rm -rf "mbedtls-$MBEDTLS_VER"; tar xf "mbedtls-$MBEDTLS_VER.tar.bz2"
   cd "mbedtls-$MBEDTLS_VER"
+  # MBEDTLS_FATAL_WARNINGS=Off: 3.6.2 -Werror trips clang>=21's new
+  # -Wunterminated-string-initialization on the (deliberately unterminated,
+  # explicit-length) TLS 1.3 label arrays in ssl_tls13_keys.c.
   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$SDEPS" \
     -DENABLE_TESTING=Off -DENABLE_PROGRAMS=Off \
+    -DMBEDTLS_FATAL_WARNINGS=Off \
     -DUSE_SHARED_MBEDTLS_LIBRARY=Off -DUSE_STATIC_MBEDTLS_LIBRARY=On >/dev/null
   cmake --build build -j"$JOBS" >/dev/null
   cmake --install build >/dev/null
