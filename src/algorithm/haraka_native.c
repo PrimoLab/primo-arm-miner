@@ -111,38 +111,6 @@ void haraka256_native(unsigned char *out, const unsigned char *in) {
     vst1q_u8(out + 16, s1);
 }
 
-void haraka256_keyed_native(unsigned char *out, const unsigned char *in, const uint8x16_t *rc) {
-    uint8x16_t s0, s1, tmp;
-    
-    // Load 32-byte input
-    s0 = vld1q_u8(in);
-    s1 = vld1q_u8(in + 16);
-    
-    // 5 rounds with custom key
-    for (int i = 0; i < 5; i++) {
-        // 2 AES rounds per block
-        for (int j = 0; j < 2; j++) {
-            s0 = aes_encrypt_round_native(s0, rc[2*2*i + 2*j]);
-            s1 = aes_encrypt_round_native(s1, rc[2*2*i + 2*j + 1]);
-        }
-
-        // Mixing step
-        tmp = unpack_lo_epi32_native(s0, s1);
-        s1 = unpack_hi_epi32_native(s0, s1);
-        s0 = tmp;
-    }
-
-    // Feed-forward
-    uint8x16_t in0 = vld1q_u8(in);
-    uint8x16_t in1 = vld1q_u8(in + 16);
-    s0 = veorq_u8(s0, in0);
-    s1 = veorq_u8(s1, in1);
-
-    // Store result
-    vst1q_u8(out, s0);
-    vst1q_u8(out + 16, s1);
-}
-
 // Haraka512 permutation implementation
 static void haraka512_perm_native(unsigned char *out, const unsigned char *in) {
     uint8x16_t s0, s1, s2, s3, tmp;
@@ -279,10 +247,6 @@ void load_constants_native(void) {
 
 void haraka256_native(unsigned char *out, const unsigned char *in) {
     // Should never be called on non-ARM systems
-    memset(out, 0, 32);
-}
-
-void haraka256_keyed_native(unsigned char *out, const unsigned char *in, const uint8x16_t *rc) {
     memset(out, 0, 32);
 }
 
