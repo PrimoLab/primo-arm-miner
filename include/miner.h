@@ -157,6 +157,10 @@ struct stratum_ctx {
 
     int pooln;
     int is_verus_protocol;
+    /* TLS session (stratum+ssl://): I/O goes through curl_easy_send/recv on
+     * the CONNECT_ONLY handle instead of raw send/recv on the socket. Set
+     * from the URL scheme on every connect (stratum_build_curl_url). */
+    int use_tls;
     int srvtime_diff;
     int authenticated;  // Set to 1 after successful authorization
     int reconnect_requested;

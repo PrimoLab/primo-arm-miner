@@ -420,7 +420,9 @@ static bool stratum_reconnect(struct stratum_ctx *sctx, json_t *params)
     url = (char *)malloc(url_len);
     if (!url)
         goto out;
-    snprintf(url, url_len, "stratum+tcp://%s:%d", host, port);
+    /* Preserve the transport: a TLS pool redirecting us must stay TLS. */
+    snprintf(url, url_len, "%s://%s:%d",
+             sctx->use_tls ? "stratum+ssl" : "stratum+tcp", host, port);
     if (!stratum_set_url(sctx, url))
         goto out;
 

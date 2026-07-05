@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <time.h>
@@ -70,6 +71,60 @@ static int sockopt_keepalive_cb(void *userdata, curl_socket_t fd, curlsocktype p
     return 0;
 }
 #endif
+
+/* TLS variant of send_line: the payload must go through the TLS record
+ * layer, so it is written with curl_easy_send on the CONNECT_ONLY handle
+ * (non-blocking; CURLE_AGAIN -> wait for socket writability and retry).
+ * Called with stratum_sock_lock held, like send_line — for TLS that lock is
+ * load-bearing beyond the socket: the TLS session state is NOT full-duplex
+ * thread-safe, so the receive path takes the same lock around its (equally
+ * non-blocking) curl_easy_recv calls. */
+static bool send_line_tls(struct stratum_ctx *sctx, const char *s)
+{
+    /* One heap line with the trailing newline: curl_easy_send has no iovec
+     * form, and two separate sends would double the record overhead. */
+    size_t len = strlen(s);
+    char *line = (char *)malloc(len + 2);
+    size_t sent = 0;
+
+    if (!line)
+        return false;
+    memcpy(line, s, len);
+    line[len] = '\n';
+    line[len + 1] = '\0';
+
+    while (sent < len + 1) {
+        size_t n = 0;
+        CURLcode rc;
+        short revents = 0;
+
+        if (!sctx->curl || sctx->sock == CURL_SOCKET_BAD) {
+            free(line);
+            return false;
+        }
+        rc = curl_easy_send(sctx->curl, line + sent, len + 1 - sent, &n);
+        if (rc == CURLE_OK) {
+            sent += n;
+            continue;
+        }
+        if (rc != CURLE_AGAIN) {
+            if (opt_debug)
+                applog(LOG_DEBUG, "send_line_tls: curl_easy_send failed (%d)", (int)rc);
+            free(line);
+            return false;
+        }
+        if (stratum_poll_socket(sctx->sock, POLLOUT, 30000, &revents) <= 0 ||
+            (revents & (POLLERR | POLLHUP | POLLNVAL))) {
+            if (opt_debug)
+                applog(LOG_DEBUG, "send_line_tls: socket not writable");
+            free(line);
+            return false;
+        }
+    }
+
+    free(line);
+    return true;
+}
 
 static bool send_line(curl_socket_t sock, const char *s)
 {
@@ -165,7 +220,10 @@ bool stratum_send_line(struct stratum_ctx *sctx, const char *s)
         applog(LOG_INFO, "> %s", s);
 
     pthread_mutex_lock(&stratum_sock_lock);
-    ret = send_line(sctx->sock, s);
+    if (sctx->use_tls)
+        ret = send_line_tls(sctx, s);
+    else
+        ret = send_line(sctx->sock, s);
     pthread_mutex_unlock(&stratum_sock_lock);
 
     return ret;
@@ -296,27 +354,66 @@ char *stratum_recv_line_timeout(struct stratum_ctx *sctx, int timeout, bool *tim
                     *timed_out = true;
                 goto out;
             }
-            if (!stratum_socket_full(sctx->sock, remaining)) {
-                if (log_timeout)
-                    applog(LOG_ERR, "stratum_recv_line timed out");
-                if (timed_out)
-                    *timed_out = true;
-                goto out;
-            }
 
             memset(s, 0, RBUFSIZE);
-            n = recv(sctx->sock, s, RECVSIZE, 0);
-            if (!n) {
-                ret = false;
-                break;
-            }
-            if (n < 0) {
-                if (!socket_blocks()) {
+            if (sctx->use_tls) {
+                /* TLS order is inverted vs the raw path: try curl_easy_recv
+                 * FIRST (decrypted bytes can be buffered in the TLS layer
+                 * with nothing pending on the socket — polling first would
+                 * deadlock on them), and only wait for socket readability on
+                 * CURLE_AGAIN. The call itself never blocks (CONNECT_ONLY
+                 * sockets are non-blocking) and runs under stratum_sock_lock
+                 * because TLS session state, unlike a raw socket, is not
+                 * safe for concurrent send/recv from two threads. */
+                size_t nread = 0;
+                CURLcode rc;
+
+                pthread_mutex_lock(&stratum_sock_lock);
+                if (!sctx->curl || sctx->sock == CURL_SOCKET_BAD)
+                    rc = CURLE_RECV_ERROR;
+                else
+                    rc = curl_easy_recv(sctx->curl, s, RECVSIZE, &nread);
+                pthread_mutex_unlock(&stratum_sock_lock);
+
+                if (rc == CURLE_AGAIN) {
+                    if (!stratum_socket_full(sctx->sock, remaining)) {
+                        if (log_timeout)
+                            applog(LOG_ERR, "stratum_recv_line timed out");
+                        if (timed_out)
+                            *timed_out = true;
+                        goto out;
+                    }
+                    continue;
+                }
+                if (rc != CURLE_OK || nread == 0) {
+                    /* nread == 0 with CURLE_OK is the TLS-layer EOF. */
                     ret = false;
                     break;
                 }
-                continue;
+                n = (ssize_t)nread;
             } else {
+                if (!stratum_socket_full(sctx->sock, remaining)) {
+                    if (log_timeout)
+                        applog(LOG_ERR, "stratum_recv_line timed out");
+                    if (timed_out)
+                        *timed_out = true;
+                    goto out;
+                }
+
+                n = recv(sctx->sock, s, RECVSIZE, 0);
+                if (!n) {
+                    ret = false;
+                    break;
+                }
+                if (n < 0) {
+                    if (!socket_blocks()) {
+                        ret = false;
+                        break;
+                    }
+                    continue;
+                }
+            }
+            {
                 /* Stratum is line-delimited JSON text. An embedded NUL is not
                  * valid in that stream and would corrupt the C-string buffer
                  * (silently dropping everything after it); treat it as a fatal
@@ -390,10 +487,22 @@ static bool stratum_prepare_transport_locked(struct stratum_ctx *sctx, CURL **cu
     return true;
 }
 
+/* TLS is selected by URL scheme: stratum+ssl:// (xmrig convention) plus the
+ * stratum+tcps:// (cpuminer), ssl:// and tls:// aliases. Everything else is
+ * plain TCP, exactly as before. */
+static bool stratum_url_is_tls(const char *url)
+{
+    return strncasecmp(url, "stratum+ssl://", 14) == 0 ||
+           strncasecmp(url, "stratum+tcps://", 15) == 0 ||
+           strncasecmp(url, "ssl://", 6) == 0 ||
+           strncasecmp(url, "tls://", 6) == 0;
+}
+
 static bool stratum_build_curl_url(struct stratum_ctx *sctx)
 {
     const char *scheme;
     char *curl_url;
+    size_t buf_len;
 
     if (!sctx->url)
         return false;
@@ -402,11 +511,19 @@ static bool stratum_build_curl_url(struct stratum_ctx *sctx)
     if (!scheme)
         return false;
 
-    curl_url = (char *)malloc(strlen(sctx->url) + 5);
+    sctx->use_tls = stratum_url_is_tls(sctx->url) ? 1 : 0;
+
+    buf_len = strlen(sctx->url) + 6;
+    curl_url = (char *)malloc(buf_len);
     if (!curl_url)
         return false;
 
-    snprintf(curl_url, strlen(sctx->url) + 5, "http%s", scheme);
+    /* https:// + CURLOPT_CONNECT_ONLY makes libcurl run the TLS handshake
+     * during curl_easy_perform and route curl_easy_send/recv through the
+     * TLS record layer — TLS support without linking any TLS library
+     * ourselves (the 2026-06-10 OpenSSL removal stands; the SONAME problem
+     * is libcurl's). */
+    snprintf(curl_url, buf_len, sctx->use_tls ? "https%s" : "http%s", scheme);
     free(sctx->curl_url);
     sctx->curl_url = curl_url;
     return true;
@@ -480,6 +597,18 @@ bool stratum_connect(struct stratum_ctx *sctx)
         return false;
     }
 
+    if (sctx->use_tls) {
+        const curl_version_info_data *ci = curl_version_info(CURLVERSION_NOW);
+        if (!ci || !(ci->features & CURL_VERSION_SSL)) {
+            applog(LOG_ERR,
+                   "stratum+ssl requested but TLS is not supported by this libcurl build "
+                   "(%s) — use stratum+tcp or a TLS-enabled libcurl",
+                   ci && ci->version ? ci->version : "unknown");
+            stratum_close_transport(sctx);
+            return false;
+        }
+    }
+
     if (opt_protocol)
         curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
     sctx->curl_err_str[0] = '\0';
@@ -491,6 +620,15 @@ bool stratum_connect(struct stratum_ctx *sctx)
     curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1);
     // Proxy configuration is not exposed by this miner; disable implicit env proxies.
     curl_easy_setopt(curl, CURLOPT_PROXY, "");
+    if (sctx->use_tls) {
+        /* Pool TLS certificates are almost universally self-signed, and the
+         * ecosystem norm (xmrig included) is not to verify them — TLS here
+         * protects against passive snooping of wallet/worker credentials,
+         * not active MITM. Verification also breaks the Android/JVM-resolved
+         * connect-by-IP flow (no SNI/hostname to match). */
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    }
 #if LIBCURL_VERSION_NUM >= 0x070f06
     curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_keepalive_cb);
 #endif

@@ -479,6 +479,7 @@ void stratum_init_context(struct stratum_ctx *sctx, int pooln, bool is_verus_pro
     sctx->pooln = pooln;
     stratum_is_verus_protocol_store(sctx, is_verus_protocol);
     sctx->sock = CURL_SOCKET_BAD;
+    sctx->use_tls = 0;
     sctx->next_submit_id = 10;
     sctx->reconnect_requested = 0;
     stratum_thread_active_store(sctx, 0);

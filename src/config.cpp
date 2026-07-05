@@ -287,7 +287,7 @@ static void exit_with_usage(int status)
         printf("Usage: %s [OPTIONS]\n", PACKAGE_NAME);
         printf("Options:\n");
         printf("  -a, --algo=ALGO       Algorithm: verus, sha256d (BTC), scrypt (LTC), randomx (XMR)\n");
-        printf("  -o, --url=URL         Pool URL (stratum+tcp://...)\n");
+        printf("  -o, --url=URL         Pool URL (stratum+tcp:// or stratum+ssl:// for TLS)\n");
         printf("  -O, --userpass=U:P    Username:password pair\n");
         printf("  -u, --user=USERNAME   Wallet address + worker name\n");
         printf("  -p, --pass=PASSWORD   Worker password (default: x)\n");
