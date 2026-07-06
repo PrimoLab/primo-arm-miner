@@ -212,12 +212,26 @@ Takes effect the next time mining starts.
       unparseable `stratum+tcp://<v6>:port` URL (silent connect-retry loop, UI
       stuck "connecting"). `MinerService` now prefers an IPv4 address, bracketing
       IPv6 (`[addr]:port`) only when that's all a host offers.
-- [ ] Release signing keystore (separate from the debug one) for distribution
+- [x] Release signing keystore — DONE 2026-07-06: `build_apk_termux.sh`
+      release-signs when `PRIMO_KEYSTORE` (path to the release `.jks`) +
+      `PRIMO_KS_PASS` (+ optional `PRIMO_KS_ALIAS`, default `primolab`) are
+      set → `build/primo-arm-miner-release.apk`, printing the cert SHA-256
+      fingerprint (publish it with releases). Unset = debug keystore,
+      unchanged. The keystore lives OUTSIDE all repos (backed up privately);
+      the SAME key must sign every release forever — a changed key forces
+      users to uninstall (losing in-app config) to update. Signing is
+      machine-independent: an unsigned/debug build can be re-signed
+      anywhere with apksigner; the signature, not the build box, is the
+      app identity. (Native lib builds stay on-device per the pinned
+      clang-16 recipe.)
 - [ ] Optional later: Gradle/AGP project for x86 CI builds; JNI in-process variant
       if any device rejects subprocess exec
 
 ## Distribution
 
-Play Store bans mining → GitHub Releases / F-Droid / sideload. Remember APK
-signing (release keystore must be stable across versions).
+Play Store bans mining → sideload / mirrors. Canonical downloads are
+https://primolab.dev/dl/ (forge-independent); GitLab first, GitHub when the
+org unflags, self-hosted F-Droid repo later for auto-updates. Full plan:
+/root/primolab-site/DISTRIBUTION.md (untracked). APK signing: release
+keystore is stable across versions — see the checklist item above.
 ```
