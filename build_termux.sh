@@ -81,6 +81,12 @@ if [ -n "${CLANG_PREFIX:-}" ]; then
     # in the Android system image, not in the Termux prefix.  No rpath needed
     # for /system/lib64 — Android's dynamic linker always searches it.
     LINK_EXTRA="-L$TERMUX_USR/lib -L/system/lib64 -Wl,-rpath,$TERMUX_USR/lib"
+    # libc++ 21.1.8+ headers externalize std::__ndk1::__thread_local_data();
+    # Termux ships libc++_shared.so (no libc++.so alias), and vanilla
+    # clang-16's android driver asks for -lc++ — link it explicitly.
+    # Harmless on older header sets. (Found in the termux-docker build env;
+    # the phone hits the same wall after its next libc++ pkg upgrade.)
+    [ -f "$TERMUX_USR/lib/libc++_shared.so" ] && LINK_EXTRA="$LINK_EXTRA -lc++_shared"
 
     # Single wrapper: clang-16 for both compile and link.
     # Keep -L/-Wl flags out of compile-only steps to avoid "unused arg" noise.
