@@ -12,7 +12,7 @@ import android.graphics.drawable.GradientDrawable
  */
 object Palette {
     private const val BG = 0xFF0B0C10.toInt()          // window background
-    val TEAL = 0xFF19E3A1.toInt()                      // app brand / unknown algo
+    val TEAL = 0xFF2FC6B5.toInt()                      // app brand (site teal) / unknown algo
 
     fun accentFor(algo: String?): Int = when (algo?.trim()?.lowercase()) {
         "verus" -> 0xFF5B8DEF.toInt()                  // Verus blue (#3165D4 lifted)
