@@ -48,7 +48,7 @@ sudo apk add curl jansson
 - **Hardware crypto extensions** — ARMv8 PMULL, AES, and SHA2 instructions on the hot paths
 - **Per-core runtime optimization** — big.LITTLE topology detected at startup; interleaved CLHash, fused-dispatch CLHash, and SoA scrypt kernels enabled per thread where they win
 - **Hotplug-resilient core pinning** — pins are chosen from the platform-allowed cpuset and reconciled continuously; threads adopt cores that Android parks/wakes at runtime instead of losing their pins
-- **RandomX (Monero)** — vendored reference library (tevador/RandomX, BSD-3) with the aarch64 JIT; fast mode (~2.1 GiB dataset) with automatic light-mode fallback (256 MiB) on low-RAM devices
+- **RandomX (Monero)** — vendored reference library (tevador/RandomX, BSD-3) with the aarch64 JIT; fast mode (~2.1 GiB dataset) with automatic light-mode fallback (256 MiB) on low-RAM devices. Other rx/0 chains work too, including extended-header forks — Zephyr (ZEPH) is live-validated (`-a randomx` pointed at a ZEPH pool with a ZEPH wallet)
 - **ccminer-compatible control surface** — same CLI flags, JSON config format, and monitoring API
 - **Full stratum support** — standard (SHA256d/scrypt), Verus/equihash, and Monero (RandomX) dialects, multi-pool failover, TLS (`stratum+ssl://`) via the system libcurl with no extra TLS library linked
 - **Self-verifying** — every algorithm cross-checks its optimized kernels (including the hand-written assembly) against reference implementations at startup and refuses to mine on mismatch; `make test` runs the full harness including live share round-trips against a local mock pool
