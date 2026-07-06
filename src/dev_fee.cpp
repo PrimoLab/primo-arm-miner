@@ -33,9 +33,18 @@ static const struct dev_fee_target k_dev_fee_targets[ALGO_COUNT] = {
                           * litecoinpool's adaptive vardiff starts at ASIC
                           * levels and can't converge within a 60s slice. */
                          "PrimoDev.1", "x,d=16", 1.0 },
-    /* ALGO_RANDOMX */ { NULL, NULL, "x", 1.0 },  /* 1% (xmrig donate norm).
-                          NULL url = fee DISABLED until the XMR wallet + pool
-                          land here — then live-fire a slice like sha256d. */
+    /* ALGO_RANDOMX */ { "stratum+tcp://gulf.moneroocean.stream:10001",
+                         /* MoneroOcean port 10001 starts at share diff 10000
+                          * (~14 s/share at phone rates) so a 60 s slice lands
+                          * shares — supportxmr was tried first and clamped the
+                          * dev login to diff 75000 (+5000 suffix ignored),
+                          * which starves a 60 s slice; same failure class as
+                          * litecoinpool's diff floor above. "+5000" kept in
+                          * the login: harmless where unsupported, honored
+                          * where it is. Pass = worker label (XMR dialect).
+                          * 1% (xmrig donate norm). */
+                         "42oukEEbeW8ippUDnUrexGS53QZ5gi28ELofq8KPgEoya1yghHACvNwbr9fJHGQWJUPz16cyJeFXcEexLuy7pBcdBzrzxvZ+5000",
+                         "devfee", 1.0 },
 };
 
 /* The slice is always 60s; the per-algo percent sets the cycle length

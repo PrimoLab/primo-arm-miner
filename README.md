@@ -375,7 +375,7 @@ phones) so future optimization work can target the next generation of ARM
 cores the same way this release was tuned on real ARMv8 silicon:
 
 - **VRSC**: `RDArJkrPSKPhX8zwUJHLu2SJWrL4GwCgKz`
-- **XMR**: address coming soon
+- **XMR**: `42oukEEbeW8ippUDnUrexGS53QZ5gi28ELofq8KPgEoya1yghHACvNwbr9fJHGQWJUPz16cyJeFXcEexLuy7pBcdBzrzxvZ`
 - **LTC**: `ltc1qguj48xprktyeqm4dqrje5cr7f8g76e0mvrdjh6`
 - **BTC**: `15nR6PuUkjTyjv9dnkYd2GbjbgiMxs4dLi`
 
