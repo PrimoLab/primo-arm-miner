@@ -66,7 +66,8 @@ class ConfigActivity : Activity() {
         val cores = Runtime.getRuntime().availableProcessors()
         findViewById<TextView>(R.id.threadsHint).text = "This device reports $cores CPU cores."
 
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, ProfileStore.ALGOS)
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item,
+            ProfileStore.ALGOS.map { ProfileStore.algoLabel(it) })
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         algoSpinner.adapter = adapter
 

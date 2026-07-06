@@ -27,7 +27,18 @@ import java.io.File
  */
 object ProfileStore {
 
-    val ALGOS = listOf("verus", "sha256d", "scrypt", "randomx")
+    // Canonical coin order (site rule): Verus, Monero, LTC+DOGE, Bitcoin.
+    // Positions are never persisted — profiles are keyed by algo name.
+    val ALGOS = listOf("verus", "randomx", "scrypt", "sha256d")
+
+    /** Dropdown label: the algo name (what config.json uses) + the coin it mines. */
+    fun algoLabel(algo: String): String = when (algo) {
+        "verus" -> "verus — Verus (VRSC)"
+        "randomx" -> "randomx — Monero (XMR)"
+        "scrypt" -> "scrypt — Litecoin + Dogecoin"
+        "sha256d" -> "sha256d — Bitcoin (BTC)"
+        else -> algo
+    }
 
     /** UI cap on pools per algo. The miner itself allows MAX_USER_POOLS=8. */
     const val MAX_POOLS = 4
