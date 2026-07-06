@@ -101,12 +101,30 @@ cp "$JNILIB_DIR"/*.so "$OUT/lib/arm64-v8a/"
 ( cd "$OUT" && zip -q "$OUT/unsigned.apk" lib/arm64-v8a/*.so )
 
 # --- 5. align + sign ---------------------------------------------------------
-KEYSTORE="$SDK_CACHE/debug.keystore"
-if [ ! -f "$KEYSTORE" ]; then
-  say "generating debug keystore"
-  keytool -genkeypair -keystore "$KEYSTORE" -storepass android -keypass android \
-    -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-    -dname "CN=Primo Debug,O=PrimoLab,C=US"
+# Release signing: set PRIMO_KEYSTORE (path to the RELEASE .jks) and
+# PRIMO_KS_PASS (store+key password); optional PRIMO_KS_ALIAS (default
+# "primolab"). The release key is the app's identity — updates only install
+# over an APK signed with the SAME key. Never regenerate it; keep off-device
+# backups. Unset = debug keystore, auto-generated, exactly as before.
+if [ -n "${PRIMO_KEYSTORE:-}" ]; then
+  [ -f "$PRIMO_KEYSTORE" ] || die "PRIMO_KEYSTORE not found: $PRIMO_KEYSTORE"
+  [ -n "${PRIMO_KS_PASS:-}" ] || die "PRIMO_KS_PASS not set (release keystore password)"
+  KEYSTORE="$PRIMO_KEYSTORE"
+  KS_PASS="$PRIMO_KS_PASS"
+  KS_ALIAS="${PRIMO_KS_ALIAS:-primolab}"
+  SIGNED_NAME="primo-arm-miner-release.apk"
+  say "RELEASE signing with $KEYSTORE (alias $KS_ALIAS)"
+else
+  KEYSTORE="$SDK_CACHE/debug.keystore"
+  KS_PASS="android"
+  KS_ALIAS="androiddebugkey"
+  SIGNED_NAME="primo-arm-miner.apk"
+  if [ ! -f "$KEYSTORE" ]; then
+    say "generating debug keystore"
+    keytool -genkeypair -keystore "$KEYSTORE" -storepass android -keypass android \
+      -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+      -dname "CN=Primo Debug,O=PrimoLab,C=US"
+  fi
 fi
 
 say "zipalign"
@@ -114,8 +132,10 @@ zipalign -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 
 say "apksigner"
 apksigner sign \
-  --ks "$KEYSTORE" --ks-pass pass:android --key-pass pass:android \
-  --out "$OUT/primo-arm-miner.apk" "$OUT/aligned.apk"
+  --ks "$KEYSTORE" --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_PASS" \
+  --ks-key-alias "$KS_ALIAS" \
+  --out "$OUT/$SIGNED_NAME" "$OUT/aligned.apk"
 
-say "done -> $OUT/primo-arm-miner.apk"
-apksigner verify --print-certs "$OUT/primo-arm-miner.apk" >/dev/null && say "signature OK"
+say "done -> $OUT/$SIGNED_NAME"
+apksigner verify --print-certs "$OUT/$SIGNED_NAME" | grep -i 'SHA-256 digest' || true
+apksigner verify "$OUT/$SIGNED_NAME" >/dev/null && say "signature OK"
