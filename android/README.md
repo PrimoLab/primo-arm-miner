@@ -38,7 +38,7 @@ whole APK toolchain, whereas the standard NDK/aapt2/d8 are x86_64-only.
 
 ```bash
 # 1. one-time toolchain
-pkg install openjdk-17 kotlin aapt2 d8 apksigner android-tools zip
+pkg install openjdk-17 kotlin aapt aapt2 d8 apksigner android-tools zip
 
 # 2. build a SELF-CONTAINED native miner (static curl+jansson) and stage it +
 #    libc++ into jniLibs. The stock build_termux.sh binary is NOT usable in the
@@ -49,6 +49,26 @@ bash android/build_native_termux.sh
 cd android && bash build_apk_termux.sh
 # -> android/build/primo-arm-miner.apk  (debug-signed)
 ```
+
+### Alternative: the same build in docker (arm64 Linux host)
+
+The identical scripts also run inside
+[termux-docker](https://github.com/termux/termux-docker) on any arm64 Linux
+box (`termux/termux-docker:aarch64`) — validated against on-device builds
+(byte-count-identical output, A/B'd hashrates on a real phone). The
+on-device path above remains the reference method; a phone is still the
+only place to *validate* mining performance. Container-specific gotchas:
+
+- termux-exec's shebang rewriting isn't active under `docker exec`/`RUN`:
+  create `/bin/sh` and `/usr/bin/env` symlinks to their `$PREFIX/bin`
+  equivalents (as root) or scripts won't exec.
+- `docker cp` writes files as root; `chown 1000:1000` them for the
+  `system` build user.
+- Run commands through `/entrypoint.sh` (e.g.
+  `docker exec <c> /entrypoint.sh sh -c 'pkg ...'`) so the Termux
+  environment is set up.
+- Same package list as above, plus `wget` (static-deps downloads). `aapt`
+  matters: it's what provides `zipalign`.
 
 ### Why the native build is special
 - The APK binary must depend only on **bionic system libs** (+ a bundled

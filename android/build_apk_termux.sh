@@ -6,7 +6,7 @@
 # this uses Termux's native tools directly.
 #
 # One-time deps:
-#   pkg install openjdk-17 kotlin aapt2 d8 apksigner android-tools zip
+#   pkg install openjdk-17 kotlin aapt aapt2 d8 apksigner android-tools zip
 #
 # Inputs you must stage first:
 #   1. Build the native miner (Android/bionic arm64) with the repo's
@@ -36,7 +36,7 @@ die() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 # --- preflight ---------------------------------------------------------------
 for t in aapt2 d8 apksigner zipalign kotlinc keytool javac zip; do
-  command -v "$t" >/dev/null 2>&1 || die "missing '$t' — run: pkg install openjdk-17 kotlin aapt2 d8 apksigner android-tools zip"
+  command -v "$t" >/dev/null 2>&1 || die "missing '$t' — run: pkg install openjdk-17 kotlin aapt aapt2 d8 apksigner android-tools zip"
 done
 [ -f "$JNILIB" ] || die "native miner not staged at $JNILIB (see header step 1)"
 

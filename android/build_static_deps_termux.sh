@@ -39,6 +39,7 @@ fi
 if [ ! -f "$SDEPS/lib/libmbedtls.a" ]; then
   say "building mbedTLS $MBEDTLS_VER (static)"
   command -v cmake >/dev/null 2>&1 || { echo "ERROR: cmake needed for mbedTLS (pkg install cmake)" >&2; exit 1; }
+  command -v wget  >/dev/null 2>&1 || { echo "ERROR: wget needed to fetch source tarballs (pkg install wget)" >&2; exit 1; }
   cd "$SRC"
   [ -f "mbedtls-$MBEDTLS_VER.tar.bz2" ] || \
     wget -q "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MBEDTLS_VER/mbedtls-$MBEDTLS_VER.tar.bz2"
