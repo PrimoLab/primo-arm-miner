@@ -1,3 +1,11 @@
+/*
+ * Haraka v2 — ARM AES implementation interface. The permutation core is a
+ * translation of the Haraka v2 reference implementation, Copyright (c)
+ * 2016 kste (MIT); keyed variants follow the VerusHash construction,
+ * Copyright (c) 2018 The Verus Developers (MIT). Full notice in
+ * src/algorithm/haraka_native.c.
+ */
+
 #ifndef HARAKA_NATIVE_H_
 #define HARAKA_NATIVE_H_
 

@@ -13,7 +13,7 @@
  * - Jeffrey Walton (noloader/SHA-Intrinsics)
  * - Colin Percival (scrypt)
  *
- * This implementation is placed in the public domain.
+ * Distributed as part of primo-arm-miner under GPL-3.0-or-later.
  */
 
 #include <sha256_neon.h>

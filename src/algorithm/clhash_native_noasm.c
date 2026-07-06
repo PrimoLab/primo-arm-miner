@@ -1,3 +1,8 @@
+// This TU recompiles clhash_native.c, whose hashing core carries Apache-2.0
+// translation ancestry (Copyright (c) 2018 Michael Toutonghi; CLHash
+// Copyright (c) 2017, 2018 Daniel Lemire and Owen Kaser) — see the header
+// of clhash_native.c and LICENSES/Apache-2.0.txt.
+//
 // Portable (no-asm) build of the CLHash hot loop. Compiled alongside the asm
 // build (plain clhash_native.c, which defaults CLHASH_SYM_SUFFIX to _asm) so
 // verus.cpp can pick per thread at runtime: big OoO cores get the _asm helpers,

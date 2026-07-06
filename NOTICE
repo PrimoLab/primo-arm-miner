@@ -7,14 +7,26 @@ version 3 or any later version. See the LICENSE file for the full text.
 The project contains substantial original work by primo-arm-miner
 contributors and also has known development ancestry from earlier
 GPL-licensed mining software used as reference and integration harnesses,
-including ccminer_arm_cc1, ccminer_oink70_source, and cpuminer-opt-26.1.
+including ccminer (via the oink70 ARM fork and the ccminer_arm_cc1
+development harness) and cpuminer-opt-26.1.
 
 Current releases should be treated conservatively as GPL-covered
 distributions. See PROVENANCE.md for a summary of known file ancestry and
 release-compliance notes.
 
+The VerusHash implementation is an ARM NEON translation with the following
+upstream ancestry, whose notices must be preserved in redistribution:
+ - Verus CLHash variant: Copyright (c) 2018 Michael Toutonghi, based on
+   CLHash, Copyright (c) 2017, 2018 Daniel Lemire and Owen Kaser
+   (Apache License 2.0; text retained at LICENSES/Apache-2.0.txt).
+ - Haraka v2: Copyright (c) 2016 kste (MIT License).
+ - VerusHash construction: Copyright (c) 2018 The Verus Developers
+   (MIT License).
+
 Third-party copyright and license notices that remain in specific files,
-such as src/algorithm/scrypt.h, must be preserved in redistribution.
+such as src/algorithm/scrypt.h (Colin Percival), must be preserved in
+redistribution. src/algorithm/sha256_neon.c credits public-domain work by
+Jeffrey Walton (noloader/SHA-Intrinsics).
 
 The RandomX hashing library (third_party/RandomX/, BSD 3-Clause,
 Copyright (c) tevador and The Monero Project) is vendored unmodified;

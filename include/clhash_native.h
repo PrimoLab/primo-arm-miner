@@ -1,3 +1,12 @@
+/*
+ * CLHash for VerusHash v2.2 — ARM NEON interface and inline helpers.
+ * The hashing core is a translation of the Verus CLHash variant,
+ * Copyright (c) 2018 Michael Toutonghi (Apache-2.0, see
+ * LICENSES/Apache-2.0.txt), based on CLHash, Copyright (c) 2017, 2018
+ * Daniel Lemire and Owen Kaser. See src/algorithm/clhash_native.c for the
+ * full notice.
+ */
+
 #ifndef CLHASH_NATIVE_H_
 #define CLHASH_NATIVE_H_
 

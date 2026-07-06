@@ -1,3 +1,21 @@
+/*
+ * CLHash for VerusHash v2.2 — ARM NEON implementation.
+ *
+ * The hashing core is an ARM NEON translation of the Verus CLHash variant:
+ *   Copyright (c) 2018 Michael Toutonghi
+ *   Distributed under the Apache License 2.0 (see LICENSES/Apache-2.0.txt),
+ *   based on CLHash, Copyright (c) 2017, 2018 Daniel Lemire and Owen Kaser
+ *   (https://github.com/lemire/clhash).
+ * Changes from the original: translated from x86 SSE/sse2neon intrinsics to
+ * native ARM NEON/PMULL, plus project-original additions (two-nonce
+ * interleaved and fused-dispatch variants, hand-written asm helpers,
+ * runtime asm/noasm selection).
+ *
+ * This file is distributed as part of primo-arm-miner under
+ * GPL-3.0-or-later; the Apache-2.0 notice above applies to the translated
+ * portions and must be preserved in redistribution.
+ */
+
 #include "clhash_native.h"
 #include "haraka_native.h"  // For aes_encrypt_round_native()
 #include "cpu_features.h"

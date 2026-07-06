@@ -1,3 +1,41 @@
+/*
+ * Haraka v2 — ARM AES (crypto extension) implementation.
+ *
+ * The permutation core is an ARM NEON/AES translation of the Haraka v2
+ * reference implementation:
+ *
+ *   The MIT License (MIT)
+ *   Copyright (c) 2016 kste (https://github.com/kste/haraka)
+ *
+ *   Permission is hereby granted, free of charge, to any person obtaining
+ *   a copy of this software and associated documentation files (the
+ *   "Software"), to deal in the Software without restriction, including
+ *   without limitation the rights to use, copy, modify, merge, publish,
+ *   distribute, sublicense, and/or sell copies of the Software, and to
+ *   permit persons to whom the Software is furnished to do so, subject to
+ *   the following conditions:
+ *
+ *   The above copyright notice and this permission notice shall be
+ *   included in all copies or substantial portions of the Software.
+ *
+ *   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ *   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ *   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ *   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+ *   BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ *   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ *   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ *   SOFTWARE.
+ *
+ * The keyed variants used by VerusHash follow the VerusHash construction,
+ * Copyright (c) 2018 The Verus Developers (MIT).
+ *
+ * Changes from the original: translated from x86 AES-NI/SSE intrinsics to
+ * ARM AES/NEON; truncated-output keyed variant (only hash word 7 is
+ * computed) added for this project. Distributed as part of primo-arm-miner
+ * under GPL-3.0-or-later; the notices above must be preserved.
+ */
+
 #include "haraka_native.h"
 #include "cpu_features.h"
 #include <string.h>
