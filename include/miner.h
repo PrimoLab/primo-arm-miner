@@ -70,8 +70,12 @@ struct verus_work_payload {
 
 // Internal work structure shared by the mining and stratum layers.
 struct work {
-    // Hash input and target data presented to the scan loop.
-    uint32_t data[48];
+    // Hash input and target data presented to the scan loop. 68 words:
+    // bytes 0-255 hold the largest RandomX-fork blob (RANDOMX_BLOB_MAX;
+    // Zephyr's is 220 bytes — not just the 80/112-byte BTC/Verus headers),
+    // and word 64 (bytes 256-259) is the RandomX nonce COUNTER, which must
+    // live beyond the blob region (RANDOMX_NONCE_WORD).
+    uint32_t data[68];
     uint32_t target[8];
 
     // Job identity and extranonce state copied from stratum.
@@ -123,7 +127,7 @@ struct stratum_job {
     // needs to reach randomx_set_seed() (xmr_stratum_handle_job() calls that
     // directly off the freshly-parsed job view, before this struct is even
     // updated), so there was never a consumer for a copy of it in the job.
-    unsigned char rx_blob[192];
+    unsigned char rx_blob[256];   /* >= RANDOMX_BLOB_MAX */
     uint16_t rx_blob_len;
     uint64_t rx_target64;
 };

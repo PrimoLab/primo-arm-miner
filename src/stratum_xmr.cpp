@@ -45,7 +45,7 @@ char *xmr_build_request_line(const char *method, uint32_t id, json_t *params)
 
 struct xmr_job_view {
     char *job_id;
-    uint8_t blob[192];
+    uint8_t blob[RANDOMX_BLOB_MAX];
     size_t blob_len;
     uint64_t target64;
     double diff;
