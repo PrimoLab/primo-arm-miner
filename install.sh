@@ -1,20 +1,21 @@
 #!/bin/sh
 # primo-arm-miner installer — Linux arm64 SBCs and Termux (Android).
 #
-#   curl -fsSL https://raw.githubusercontent.com/PrimoLab/primo-arm-miner/master/install.sh | sh
+#   curl -fsSL https://primolab.dev/install.sh | sh
 #
-# Downloads the latest release binary for this platform, installs runtime
-# dependencies where a known package manager is available, and prints a
-# mining quickstart. POSIX sh — no bash required (Termux ships bash, but
-# minimal SBC images may not).
+# Downloads the latest release binary for this platform from primolab.dev
+# (the canonical, forge-independent download host), verifies its SHA-256,
+# installs runtime dependencies where a known package manager is available,
+# and prints a mining quickstart. POSIX sh — no bash required (Termux ships
+# bash, but minimal SBC images may not).
 #
 # Environment overrides:
-#   PRIMO_REPO          GitHub repo slug (default below)
+#   PRIMO_BASE_URL      Download directory base (default below; mirrors)
 #   PRIMO_INSTALL_DIR   Target directory for the binary
-#   PRIMO_DOWNLOAD_URL  Full tarball URL (testing / mirrors)
+#   PRIMO_DOWNLOAD_URL  Full tarball URL (testing / one-off mirrors)
 set -eu
 
-PRIMO_REPO="${PRIMO_REPO:-PrimoLab/primo-arm-miner}"
+PRIMO_BASE_URL="${PRIMO_BASE_URL:-https://primolab.dev/dl}"
 BINARY="primo-arm-miner"
 
 info() { printf '==> %s\n' "$*"; }
@@ -55,7 +56,7 @@ else
     DEFAULT_DIR="/usr/local/bin"
 fi
 INSTALL_DIR="${PRIMO_INSTALL_DIR:-$DEFAULT_DIR}"
-URL="${PRIMO_DOWNLOAD_URL:-https://github.com/$PRIMO_REPO/releases/latest/download/$ASSET}"
+URL="${PRIMO_DOWNLOAD_URL:-$PRIMO_BASE_URL/$ASSET}"
 
 # ── Runtime dependencies ─────────────────────────────────────────────────────
 
@@ -85,9 +86,10 @@ trap 'rm -rf "$TMPDIR_DL"' EXIT
 
 info "Downloading $ASSET..."
 info "  from: $URL"
-# Enforce https for the default GitHub URL; an explicit PRIMO_DOWNLOAD_URL
-# override (testing, local mirrors) is the user's own transport choice.
-if [ -n "${PRIMO_DOWNLOAD_URL:-}" ]; then
+# Enforce https for the default primolab.dev URL; explicit PRIMO_DOWNLOAD_URL
+# or PRIMO_BASE_URL overrides (testing, local mirrors) are the user's own
+# transport choice.
+if [ -n "${PRIMO_DOWNLOAD_URL:-}" ] || [ "$PRIMO_BASE_URL" != "https://primolab.dev/dl" ]; then
     CURL_PROTO=""
 else
     CURL_PROTO="--proto =https"
@@ -95,6 +97,22 @@ fi
 # shellcheck disable=SC2086 — CURL_PROTO is intentionally word-split
 curl -fL $CURL_PROTO --retry 3 -o "$TMPDIR_DL/$ASSET" "$URL" \
     || die "Download failed. Check the URL above (no release published yet?) or set PRIMO_DOWNLOAD_URL."
+
+# Verify SHA-256 when a checksum is published next to the tarball (always
+# true for primolab.dev/dl; may be absent on ad-hoc mirrors — warn there).
+if command -v sha256sum >/dev/null 2>&1; then
+    if curl -fsL $CURL_PROTO -o "$TMPDIR_DL/$ASSET.sha256" "$URL.sha256" 2>/dev/null; then
+        EXPECTED="$(awk '{print $1}' "$TMPDIR_DL/$ASSET.sha256")"
+        ACTUAL="$(sha256sum "$TMPDIR_DL/$ASSET" | awk '{print $1}')"
+        [ "$EXPECTED" = "$ACTUAL" ] \
+            || die "SHA-256 mismatch for $ASSET (expected $EXPECTED, got $ACTUAL) — refusing to install."
+        info "SHA-256 verified."
+    else
+        warn "No .sha256 published next to the download — skipping checksum verification."
+    fi
+else
+    warn "sha256sum not found — skipping checksum verification."
+fi
 
 tar -xzf "$TMPDIR_DL/$ASSET" -C "$TMPDIR_DL" || die "Failed to extract $ASSET"
 [ -f "$TMPDIR_DL/$BINARY" ] || die "Archive did not contain the $BINARY binary"
@@ -129,10 +147,12 @@ cat <<EOF
     $BINARY -a verus -o stratum+tcp://pool.verus.io:9998 \\
         -u YOUR_VRSC_ADDRESS.worker -p x
 
-  Other algorithms:  -a sha256d (Bitcoin)   -a scrypt (Litecoin)
+  Other algorithms:  -a randomx (Monero)   -a scrypt (LTC+DOGE merged)
+                     -a sha256d (Bitcoin)
   Benchmark:         $BINARY --benchmark
   Config file:       $BINARY -c config.json   (ccminer-compatible format;
                      see CONFIG_EXAMPLES.md in the release archive)
+  Guides & docs:     https://primolab.dev
 
   Threads, big/LITTLE core pinning, and per-core optimizations are
   auto-detected — no tuning flags needed.

@@ -8,11 +8,12 @@ LTC+DOGE, Bitcoin), downloads, config/CLI/API reference, and FAQ.
 ## Quick Install (Linux arm64 / Termux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PrimoLab/primo-arm-miner/master/install.sh | sh
+curl -fsSL https://primolab.dev/install.sh | sh
 ```
 
 Downloads the prebuilt binary for your platform (arm64 SBC or Android/Termux),
-installs runtime libraries, and prints a mining quickstart. ARMv8 crypto
+verifies its SHA-256, installs runtime libraries, and prints a mining
+quickstart. ARMv8 crypto
 extensions (AES/PMULL/SHA2) are required — standard on every 64-bit ARM SoC
 of the last decade.
 
