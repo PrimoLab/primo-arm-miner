@@ -200,9 +200,11 @@ Takes effect the next time mining starts.
       cpuset on rooted devices = full cores even backgrounded/screen-off. No-op
       without root. Confirmed working on the magisk S10+. TODO: periodic re-assert
       + a UI toggle.
-- [x] **App icon** — teal CPU-chip + bolt, authored as a vector (no bitmaps):
-      adaptive icon (`mipmap-anydpi-v26`) + layer-list fallback (`mipmap-anydpi`)
-      so it works API 24+. Verified rendering on-device.
+- [x] **App icon** — the "P_" brand mark in the site palette (replaced the
+      original CPU-chip vector): adaptive icon (`mipmap-anydpi-v26`) +
+      layer-list fallback (`mipmap-anydpi`) so it works API 24+, foreground
+      PNGs per density. App accent aligned to the site brand teal. Verified
+      rendering on-device.
 - [ ] POST_NOTIFICATIONS runtime request (Android 13+) so the notification shows
 - [ ] targetSdk 34 needs a real `foregroundServiceType` justification (currently
       `dataSync` at targetSdk 33)
