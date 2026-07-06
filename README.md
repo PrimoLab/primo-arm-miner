@@ -52,7 +52,7 @@ sudo apk add curl jansson
 - **ccminer-compatible control surface** — same CLI flags, JSON config format, and monitoring API
 - **Full stratum support** — standard (SHA256d/scrypt), Verus/equihash, and Monero (RandomX) dialects, multi-pool failover, TLS (`stratum+ssl://`) via the system libcurl with no extra TLS library linked
 - **Self-verifying** — every algorithm cross-checks its optimized kernels (including the hand-written assembly) against reference implementations at startup and refuses to mine on mismatch; `make test` runs the full harness including live share round-trips against a local mock pool
-- **Tiny footprint** — a single ~490 KB binary (~260 KB built with `PRIMO_RANDOMX=0`), two runtime libraries (libcurl, libjansson)
+- **Tiny footprint** — a single ~508 KB binary (~260 KB built with `PRIMO_RANDOMX=0`), two runtime libraries (libcurl, libjansson)
 
 ## Performance
 
