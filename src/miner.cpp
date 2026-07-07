@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <sched.h>
+#include "sched_compat.h"
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>

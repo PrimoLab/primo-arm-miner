@@ -29,7 +29,8 @@ fi
 
 "$CMAKE_BIN" "${cmake_args[@]}"
 
-"$CMAKE_BIN" --build "$BUILD_DIR" -j"$(nproc)"
+NPROC="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
+"$CMAKE_BIN" --build "$BUILD_DIR" -j"$NPROC"
 
 install -m 755 "$BUILD_DIR/primo-arm-miner" "$ROOT_BINARY"
 
