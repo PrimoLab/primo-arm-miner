@@ -5,6 +5,10 @@ A minimal, pure ARM-native multi-algorithm cryptocurrency miner — no x86 compa
 **Website: <https://primolab.dev>** — per-coin setup guides (Verus, Monero,
 LTC+DOGE, Bitcoin), downloads, config/CLI/API reference, and FAQ.
 
+**Source & releases: <https://gitlab.com/PrimoLab/primo-arm-miner>** —
+canonical downloads stay on [primolab.dev/dl](https://primolab.dev/dl/); the
+GitLab releases mirror the same artifacts (identical SHA-256s).
+
 ## Quick Install (Linux arm64 / Termux)
 
 ```bash

@@ -31,6 +31,22 @@ GPL license text.
 A changed digest would force users to uninstall/reinstall; verify with
 `apksigner verify --print-certs primo-arm-miner.apk`.
 
+## Forge mirrors
+
+- **GitLab (live since v1.0.7)**: <https://gitlab.com/PrimoLab/primo-arm-miner>
+  — full source history, tags, and per-release pages. Release assets are
+  *copies* uploaded to the project's generic package registry (not links back
+  to primolab.dev), so the mirror stays downloadable even if the primary host
+  is down. `/-/releases/permalink/latest` always redirects to the newest
+  release — the site's mirror buttons use it so they never go stale.
+  Per release: push `master` + the tag, upload the three artifacts +
+  `SHA256SUMS` to `packages/generic/primo-arm-miner/<ver>/`, create the
+  release with those asset links, and verify one asset hash anonymously.
+- **GitHub**: dormant until the org flag clears; same mirror procedure then.
+
+Artifact SHA-256s must be byte-identical between `/dl/` and every mirror —
+a divergence means a stale or tampered mirror and is a release-blocker.
+
 ## How releases are built (maintainer side)
 
 One command on the project's own arm64 box, using two frozen container
