@@ -5,6 +5,11 @@ A minimal, pure ARM-native multi-algorithm cryptocurrency miner — no x86 compa
 **Website: <https://primolab.dev>** — per-coin setup guides (Verus, Monero,
 LTC+DOGE, Bitcoin), downloads, config/CLI/API reference, and FAQ.
 
+**Guides: <https://primolab.dev/guides>** — hands-on walkthroughs:
+[mine on Android with Termux](https://primolab.dev/guides-termux-miner.html),
+[install the Android APK](https://primolab.dev/guides-android-apk-setup.html),
+and [old phone vs ESP32 NerdMiner](https://primolab.dev/guides-old-phone-vs-esp32.html).
+
 **Source & releases: <https://gitlab.com/PrimoLab/primo-arm-miner>** —
 canonical downloads stay on [primolab.dev/dl](https://primolab.dev/dl/); the
 GitLab releases mirror the same artifacts (identical SHA-256s).
