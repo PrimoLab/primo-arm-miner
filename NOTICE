@@ -30,4 +30,6 @@ Jeffrey Walton (noloader/SHA-Intrinsics).
 
 The RandomX hashing library (third_party/RandomX/, BSD 3-Clause,
 Copyright (c) tevador and The Monero Project) is vendored unmodified;
-its LICENSE file must be preserved in redistribution.
+its LICENSE file must be preserved in redistribution (text also
+retained at LICENSES/BSD-3-Clause-RandomX.txt so binary packages
+that ship the LICENSES/ directory satisfy this).

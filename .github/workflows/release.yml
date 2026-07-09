@@ -78,7 +78,8 @@ jobs:
         run: |
           mkdir -p dist
           tar -czf dist/primo-arm-miner-linux-arm64.tar.gz \
-            primo-arm-miner LICENSE NOTICE README.md CONFIG_EXAMPLES.md
+            primo-arm-miner LICENSE NOTICE README.md CONFIG_EXAMPLES.md \
+            PROVENANCE.md LICENSES
 
       - uses: actions/upload-artifact@v4
         with:
@@ -120,7 +121,8 @@ jobs:
         run: |
           mkdir -p dist
           tar -czf dist/primo-arm-miner-android-arm64.tar.gz \
-            primo-arm-miner LICENSE NOTICE README.md CONFIG_EXAMPLES.md
+            primo-arm-miner LICENSE NOTICE README.md CONFIG_EXAMPLES.md \
+            PROVENANCE.md LICENSES
 
       - uses: actions/upload-artifact@v4
         with:

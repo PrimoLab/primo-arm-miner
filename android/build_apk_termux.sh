@@ -100,6 +100,19 @@ mkdir -p "$OUT/lib/arm64-v8a"
 cp "$JNILIB_DIR"/*.so "$OUT/lib/arm64-v8a/"
 ( cd "$OUT" && zip -q "$OUT/unsigned.apk" lib/arm64-v8a/*.so )
 
+# License texts ride inside the APK (assets/licenses/) — the APK is a binary
+# distribution of the GPL-3.0 miner + BSD-3 RandomX + Apache-2.0-derived
+# CLHash, so the texts must accompany it (see NOTICE). The first-launch
+# disclaimer points here.
+say "bundling license texts"
+ROOT="$HERE/.."
+mkdir -p "$OUT/assets/licenses"
+cp "$ROOT/LICENSE"                        "$OUT/assets/licenses/LICENSE-GPL-3.0.txt"
+cp "$ROOT/NOTICE"                         "$OUT/assets/licenses/NOTICE.txt"
+cp "$ROOT/third_party/RandomX/LICENSE"    "$OUT/assets/licenses/BSD-3-Clause-RandomX.txt"
+cp "$ROOT/LICENSES/Apache-2.0.txt"        "$OUT/assets/licenses/Apache-2.0.txt"
+( cd "$OUT" && zip -q "$OUT/unsigned.apk" assets/licenses/* )
+
 # --- 5. align + sign ---------------------------------------------------------
 # Release signing: set PRIMO_KEYSTORE (path to the RELEASE .jks) and
 # PRIMO_KS_PASS (store+key password); optional PRIMO_KS_ALIAS (default
