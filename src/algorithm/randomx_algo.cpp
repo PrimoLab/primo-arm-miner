@@ -134,6 +134,31 @@ static void rx_init_dataset_mt(void)
 
 /* (Re-)key the cache and, in fast mode, rebuild the dataset.
  * Caller holds g_rx_lock. */
+/* Threads currently inside the scanhash loop, i.e. actively reading (fast
+ * mode) or executing (light mode: the cache's SuperscalarHash JIT) the
+ * shared dataset/cache. Guards the in-place re-key below. */
+static int g_rx_active_hashers = 0;
+
+/* Called with g_rx_lock held, after miner_work_generation_bump(). Waits for
+ * threads inside the scan loop to finish their current hash (~5-12 ms) and
+ * leave — new scans park on g_rx_lock in rx_thread_vm. The seq_cst fence
+ * pairs with the one after the counter increment in scanhash_randomx:
+ * either we see the thread's increment here, or it sees our generation
+ * bump on its first loop check and exits before hashing. Bounded so a
+ * wedged thread degrades to the old (racy) behavior instead of
+ * deadlocking the stratum thread. */
+static void rx_drain_active_hashers(void)
+{
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    for (int i = 0; i < 2000; i++) {  /* <= ~2 s; typically 1-2 ticks */
+        if (__atomic_load_n(&g_rx_active_hashers, __ATOMIC_ACQUIRE) == 0)
+            return;
+        usleep(1000);
+    }
+    applog(LOG_WARNING, "RandomX: re-keying with %d hash(es) still in flight",
+           __atomic_load_n(&g_rx_active_hashers, __ATOMIC_RELAXED));
+}
+
 static bool rx_apply_seed_locked(const void *seed, size_t seed_len)
 {
     time_t t0 = time(NULL);
@@ -330,11 +355,16 @@ extern "C" void randomx_set_seed(const void *seed, size_t seed_len)
         (g_seed_len != seed_len || memcmp(g_seed, seed, seed_len) != 0)) {
         /* Quiesce mining threads: bump the work generation so each finishes
          * its current hash (≤ ~12 ms) and re-enters scanhash, where
-         * rx_thread_vm blocks on g_rx_lock until the re-key completes. The
-         * dataset is re-initialized IN PLACE — without this, threads would
-         * hash garbage against a half-rebuilt dataset for the full ~14 s. */
-        if (g_epoch > 0)
+         * rx_thread_vm blocks on g_rx_lock until the re-key completes —
+         * then WAIT for the in-flight hashes to actually drain. The
+         * dataset/cache is re-initialized IN PLACE: rebuilding under a
+         * live hash means reading a half-rebuilt dataset (fast mode,
+         * garbage hash) or executing the cache's SuperscalarHash JIT
+         * while it's rewritten (light mode, crash risk). */
+        if (g_epoch > 0) {
             miner_work_generation_bump();
+            rx_drain_active_hashers();
+        }
         memcpy(g_seed, seed, seed_len);
         g_seed_len = seed_len;
         rx_apply_seed_locked(g_seed, g_seed_len);
@@ -404,6 +434,12 @@ extern "C" int scanhash_randomx(int thr_id, struct work *work,
     uint32_t first = n;
     uint8_t hash[RANDOMX_HASH_SIZE];
 
+    /* Register as an active dataset/cache user for the duration of the
+     * loop — randomx_set_seed() drains this to zero before its in-place
+     * re-key. Fence pairs with rx_drain_active_hashers (see there). */
+    __atomic_fetch_add(&g_rx_active_hashers, 1, __ATOMIC_RELAXED);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+
     /* One RandomX hash is ~5-12 ms — checking restart/abort every iteration
      * is free relative to the hash and keeps job-switch latency low. */
     while ((uint32_t)(n - first) < max_hashes &&
@@ -434,6 +470,8 @@ extern "C" int scanhash_randomx(int thr_id, struct work *work,
         }
         n++;
     }
+
+    __atomic_fetch_sub(&g_rx_active_hashers, 1, __ATOMIC_RELEASE);
 
     *hashes_done = (unsigned long)(n - first);
     work->data[RANDOMX_NONCE_WORD] = n;
