@@ -168,7 +168,7 @@ class MinerService : Service() {
                     if (p.has("url")) p.put("url", resolveUrl(p.optString("url")))
                 }
             }
-            out.writeText(json.toString())
+            out.writeTextAtomic(json.toString())
         } catch (e: Exception) {
             Log.w(TAG, "prepareLaunchConfig failed, using config as-is: ${e.message}")
             src.copyTo(out, overwrite = true)

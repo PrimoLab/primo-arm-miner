@@ -4,6 +4,27 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+
+/**
+ * Temp-file + atomic-rename write, so a process kill or power loss mid-write
+ * can never leave a truncated/corrupt file behind (the reader sees either the
+ * old content or the new, nothing in between). fsync before the rename so the
+ * data actually hits storage before the name flips.
+ */
+internal fun File.writeTextAtomic(text: String) {
+    val tmp = File(parentFile, "$name.tmp")
+    FileOutputStream(tmp).use { fos ->
+        fos.write(text.toByteArray())
+        fos.fd.sync()
+    }
+    if (!tmp.renameTo(this)) {
+        // Same-directory rename in filesDir shouldn't fail; if it somehow
+        // does, a direct write beats silently dropping the update.
+        tmp.delete()
+        writeText(text)
+    }
+}
 
 /**
  * Per-algorithm config profiles, stored app-side in profiles.json. Lets the user
@@ -94,7 +115,7 @@ object ProfileStore {
 
     /** Persist [root] and keep the cache coherent. All writes go through here. */
     private fun store(ctx: Context, root: JSONObject) {
-        file(ctx).writeText(root.toString())
+        file(ctx).writeTextAtomic(root.toString())
         cache = root
     }
 
@@ -203,7 +224,7 @@ object ProfileStore {
             arr.put(o)
         }
         cfg.put("pools", arr)
-        MinerService.configFile(ctx).writeText(cfg.toString(2))
+        MinerService.configFile(ctx).writeTextAtomic(cfg.toString(2))
         return primary.url.isNotBlank()
     }
 }
