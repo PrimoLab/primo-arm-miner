@@ -47,6 +47,11 @@ class MinerService : Service() {
     private var process: Process? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
+    /** Serializes process/wakeLock state between the async launch thread,
+     *  repeated onStartCommand deliveries, and onDestroy. Never held across
+     *  anything slow (DNS/config prep run outside it; pb.start() is ms). */
+    private val stateLock = Any()
+
     /** Set before we kill the subprocess ourselves, so the exit watcher can
      *  tell a deliberate stop from a crash. */
     @Volatile private var stopping = false
@@ -64,7 +69,9 @@ class MinerService : Service() {
     }
 
     private fun startMiner() {
-        if (process != null) return
+        // Fast-path duplicate/late-start guard. Racy starts that slip past
+        // this are caught again under stateLock before the actual launch.
+        synchronized(stateLock) { if (process != null || stopping) return }
         val binary = File(applicationInfo.nativeLibraryDir, "libprimo.so")
         if (!binary.exists()) {
             Log.e(TAG, "miner binary missing: ${binary.absolutePath}")
@@ -100,8 +107,18 @@ class MinerService : Service() {
             // this env var.
             if (shouldUseLightRandomx())
                 pb.environment()["PRIMO_RANDOMX_LIGHT"] = "1"
-            val proc = pb.start()
-            process = proc
+            // Launch under the lock: config prep above can take seconds (DNS),
+            // during which the user may have hit Stop (onDestroy sets stopping
+            // and destroys `process`). Launching after that would orphan a
+            // miner with no service/notification/wakelock — and it would squat
+            // the API port the next start's dashboard polls. A concurrent
+            // second start is caught by the process != null re-check.
+            val proc: Process
+            synchronized(stateLock) {
+                if (stopping || process != null) return
+                proc = pb.start()
+                process = proc
+            }
 
             // Exit watcher: if the miner dies on its own (bad config, pool
             // auth failure, native crash), surface it and stop the service —
@@ -121,7 +138,7 @@ class MinerService : Service() {
             val log = File(filesDir, "miner.log")
             Thread {
                 try {
-                    process?.inputStream?.bufferedReader()?.use { reader ->
+                    proc.inputStream.bufferedReader().use { reader ->
                         log.bufferedWriter().use { writer ->
                             reader.forEachLine { line ->
                                 writer.write(line); writer.newLine(); writer.flush()
@@ -225,19 +242,26 @@ class MinerService : Service() {
     }
 
     override fun onDestroy() {
-        stopping = true      // before destroy(), so the exit watcher stays quiet
-        process?.destroy()
-        process = null
+        synchronized(stateLock) {
+            stopping = true  // before destroy(), so the exit watcher stays quiet
+            process?.destroy()
+            process = null
+            wakeLock?.let { if (it.isHeld) it.release() }
+            wakeLock = null
+        }
         running = false
-        wakeLock?.let { if (it.isHeld) it.release() }
-        wakeLock = null
         super.onDestroy()
     }
 
     private fun acquireWakeLock() {
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "primo:miner").apply {
-            acquire()
+        synchronized(stateLock) {
+            // Repeated onStartCommand deliveries must not stack wakelocks —
+            // overwriting a held lock's reference would leak it until reboot.
+            if (wakeLock?.isHeld == true) return
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "primo:miner").apply {
+                acquire()
+            }
         }
     }
 
