@@ -150,7 +150,7 @@ make clean
 CC=clang CXX=clang++ PRIMO_LINKER= make -j"$(nproc)"
 ```
 
-`./build.sh` uses the same overrides for the CMake path via `CC`, `CXX`, and `PRIMO_LINKER`. Leaving `PRIMO_LINKER` empty drops the `lld`-specific linker selection and hugetlbfs alignment flag.
+`./build.sh` uses the same overrides for the CMake path via `CC`, `CXX`, and `PRIMO_LINKER`. Leaving `PRIMO_LINKER` empty drops the `lld`-specific linker selection.
 
 ### Device build profiles
 

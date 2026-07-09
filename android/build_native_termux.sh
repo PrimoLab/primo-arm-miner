@@ -54,7 +54,7 @@ echo "==> compiling miner objects"
 make clean >/dev/null 2>&1 || true
 make -j"$(nproc)" $RANDOMX_MAKEVARS \
   CC="$W/clang" CXX="$W/clang++" PRIMO_LINKER=lld \
-  PRIMO_HUGETLBFS=0 PRIMO_A53_ERRATA=0 \
+  PRIMO_A53_ERRATA=0 \
   PRIMO_EXTRA_CFLAGS="-I$SDEPS/include -DCURL_STATICLIB" \
   PRIMO_EXTRA_CXXFLAGS="-I$SDEPS/include -DCURL_STATICLIB" \
   || echo "==> make exited nonzero (OK if only the throwaway link failed) — verifying objects"

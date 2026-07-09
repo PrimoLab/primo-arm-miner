@@ -108,15 +108,6 @@ ifneq ($(strip $(PRIMO_LINKER)),)
 PRIMO_LDFLAGS += -fuse-ld=$(PRIMO_LINKER)
 endif
 
-ifeq ($(strip $(PRIMO_LINKER)),lld)
-# hugetlbfs page-alignment hint (lld only). The Android kernel has no hugetlbfs
-# and its linker rejects the flag, so Termux/Android builds pass
-# PRIMO_HUGETLBFS=0 to drop it — no Makefile patching needed.
-ifneq ($(PRIMO_HUGETLBFS),0)
-PRIMO_LDFLAGS += -Wl,-hugetlbfs-align
-endif
-endif
-
 CPPFLAGS += $(PRIMO_CPPFLAGS)
 CFLAGS += $(PRIMO_CFLAGS)
 CXXFLAGS += $(PRIMO_CXXFLAGS)

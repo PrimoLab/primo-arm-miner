@@ -139,8 +139,6 @@ info "Detected clang $CLANG_MAJOR"
 # variables instead of sed-rewriting the repo Makefile (which used to dirty the
 # worktree and leak profiles between syncs). The repo Makefile stays untouched.
 #
-#   PRIMO_HUGETLBFS=0   drops -Wl,-hugetlbfs-align — the Android kernel has no
-#                       hugetlbfs and lld rejects the flag.
 #   PRIMO_A53_ERRATA=0  drops -mfix-cortex-a53-835769 — phone CPUs never had the
 #                       A53 erratum, so skip the NOP overhead. The default
 #                       rk3588 PROFILE is kept on purpose (NOT generic): its A76
@@ -169,7 +167,6 @@ info "Building with $JOBS parallel jobs (Android make-variable overrides, repo M
 make clean
 make -j"$JOBS" \
     CC="$CLANG_BIN" CXX="$CLANGXX_BIN" PRIMO_LINKER="$LLD_BIN" \
-    PRIMO_HUGETLBFS=0 \
     PRIMO_A53_ERRATA=0 \
     PRIMO_EXTRA_CFLAGS="$TERMUX_EXTRA_OPT" \
     PRIMO_EXTRA_CXXFLAGS="$TERMUX_EXTRA_OPT"

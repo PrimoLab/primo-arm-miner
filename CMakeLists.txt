@@ -166,13 +166,5 @@ else()
     target_link_options(primo-arm-miner PRIVATE "-flto")
 endif()
 
-# hugetlbfs page-alignment hint (lld only). The Android kernel has no
-# hugetlbfs and its linker rejects the flag, so Android/Termux builds pass
-# -DPRIMO_HUGETLBFS=0 to drop it — mirrors the Makefile's PRIMO_HUGETLBFS=0.
-option(PRIMO_HUGETLBFS "Pass -Wl,-hugetlbfs-align when using lld" ON)
-if(PRIMO_LINKER STREQUAL "lld" AND PRIMO_HUGETLBFS)
-    target_link_options(primo-arm-miner PRIVATE "-Wl,-hugetlbfs-align")
-endif()
-
 # Installation
 install(TARGETS primo-arm-miner DESTINATION bin)
