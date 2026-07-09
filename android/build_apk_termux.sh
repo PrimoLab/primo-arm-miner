@@ -131,8 +131,11 @@ say "zipalign"
 zipalign -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 
 say "apksigner"
+# env: form keeps the password out of the process command line (visible to
+# every local process via /proc/*/cmdline with pass: form).
+export KS_PASS
 apksigner sign \
-  --ks "$KEYSTORE" --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_PASS" \
+  --ks "$KEYSTORE" --ks-pass env:KS_PASS --key-pass env:KS_PASS \
   --ks-key-alias "$KS_ALIAS" \
   --out "$OUT/$SIGNED_NAME" "$OUT/aligned.apk"
 
