@@ -1291,6 +1291,10 @@ void *miner_thread(void *userdata)
     bool first_work = true;
     bool have_previous_verus_header = false;
     char previous_job_id[128] = "";
+    // Non-nonce header words as last scanned — detects a changed hashing
+    // preimage (coinbase/merkle/ntime refresh) after partition exhaustion,
+    // which makes the partition fresh hash space again (see below).
+    uint32_t last_scanned_header[30];
     // Dual EMA: fast (α=0.3) for chunk_size adaptation, slow (α=0.1) for stable display.
     // Thermal oscillations at 61°C vary rate by ±3% on ~10–30s cycles; α=0.1 attenuates
     // these by ~3× vs α=0.3 while still converging to the true rate within ~90 seconds.
@@ -1299,6 +1303,7 @@ void *miner_thread(void *userdata)
     if (!miner_work_init(&work))
         return NULL;
     memset(previous_verus_header, 0, sizeof(previous_verus_header));
+    memset(last_scanned_header, 0, sizeof(last_scanned_header));
     miner_get_thread_nonce_range(thread_id, &thread_nonce_start, &thread_nonce_end);
     next_nonce_index = thread_nonce_start;
 
@@ -1359,6 +1364,29 @@ void *miner_thread(void *userdata)
             rate_window_scan_sec = 0.0;
         }
         // Otherwise keep next_nonce_index where it was (already advanced locally)
+
+        // Exhaustion escape: the job-change heuristics above deliberately
+        // ignore coinbase/merkle/ntime refreshes (same block, same job_id /
+        // prevhash) to avoid resetting scan position and the rate EMA. But
+        // once this thread has EXHAUSTED its partition, such a refresh makes
+        // the whole partition fresh hash space — without a reset the thread
+        // would idle until the next block even though the generation bump
+        // keeps waking it. Duplicate-safe: a changed preimage cannot
+        // reproduce an already-submitted share (different hashes).
+        // RandomX is exempt: XMR pools rotate job_id per job (new_job fires)
+        // and a 2^32 counter at RandomX rates never exhausts anyway.
+        size_t preimage_words = (opt_algo == ALGO_VERUS) ? 30 : 19;
+#ifdef PRIMO_RANDOMX
+        if (opt_algo == ALGO_RANDOMX)
+            preimage_words = 0;
+#endif
+        if (!new_job && preimage_words &&
+            next_nonce_index >= thread_nonce_end &&
+            memcmp(work.data, last_scanned_header, preimage_words * 4) != 0) {
+            next_nonce_index = thread_nonce_start;
+        }
+        if (preimage_words)
+            memcpy(last_scanned_header, work.data, preimage_words * 4);
 
         if (next_nonce_index >= thread_nonce_end) {
             wait_for_work_restart_after_nonce_exhaustion(thread_id, work.restart_generation,
