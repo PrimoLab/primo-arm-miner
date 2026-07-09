@@ -165,7 +165,10 @@ Takes effect the next time mining starts.
       **dropdown**; each algo keeps its own pools/threads (`profiles.json`) so
       switching algos repopulates that algo's data. Existing config.json (and v1
       single-pool profiles) auto-migrated. Miner unchanged — SAVE writes the
-      ccminer-compatible `pools[]` config.json from the active algo.
+      ccminer-compatible `pools[]` config.json from the active algo. All app
+      config writes (`profiles.json`, `config.json`, `config.runtime.json`) are
+      atomic (`writeTextAtomic`: tmp + fsync + rename) so a kill/power loss
+      mid-write can't corrupt the user's wallets/pools.
 - [x] **Pool failover**: primary + up to 3 failover pools per algo as removable
       cards, priority order = card order, riding the miner's existing failover.
       Blank failover user/pass inherit the primary's (top-level inheritance).
@@ -245,7 +248,9 @@ Takes effect the next time mining starts.
       machine-independent: an unsigned/debug build can be re-signed
       anywhere with apksigner; the signature, not the build box, is the
       app identity. (Native lib builds stay on-device per the pinned
-      clang-16 recipe.)
+      clang-16 recipe.) The password reaches apksigner via
+      `--ks-pass env:KS_PASS` (never `pass:` on argv, which is readable
+      in `/proc/*/cmdline`).
 - [ ] Optional later: Gradle/AGP project for x86 CI builds; JNI in-process variant
       if any device rejects subprocess exec
 
