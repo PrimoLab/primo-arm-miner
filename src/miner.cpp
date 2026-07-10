@@ -1254,6 +1254,7 @@ static bool submit_ready_share(struct work *work)
 
 static void wait_for_work_restart_after_nonce_exhaustion(int thread_id,
                                                          uint32_t restart_generation,
+                                                         uint64_t work_update_snapshot,
                                                          struct timespec *rate_window_start,
                                                          unsigned long *rate_window_hashes,
                                                          double *rate_window_scan_sec)
@@ -1262,6 +1263,15 @@ static void wait_for_work_restart_after_nonce_exhaustion(int thread_id,
         applog(LOG_DEBUG, "Thread %d: nonce range exhausted, waiting for new work", thread_id);
 
     while (!miner_work_restart_requested(restart_generation) && !miner_should_abort()) {
+        // Non-clean same-height/same-target job updates are published WITHOUT
+        // bumping the restart generation (deliberate — active scans keep
+        // their position). But an exhausted thread must wake for them: the
+        // refreshed preimage can make this partition fresh hash space again
+        // (the exhaustion-escape reset above decides). The snapshot is taken
+        // at work-copy time so an update landing between copy and this wait
+        // is never slept through.
+        if (stratum_work_update_count() != work_update_snapshot)
+            break;
         usleep(50000);  // 50ms
     }
 
@@ -1318,6 +1328,9 @@ void *miner_thread(void *userdata)
     miner_configure_current_thread(thread_ctx);
 
     while (!miner_should_abort()) {
+        // Snapshot the publication counter BEFORE copying: any update that
+        // lands after this is visible to the exhaustion wait below.
+        uint64_t work_update_snapshot = stratum_work_update_count();
         // Get work from stratum
         if (!stratum_copy_work(&work)) {
             sleep(1);
@@ -1398,6 +1411,7 @@ void *miner_thread(void *userdata)
 
         if (next_nonce_index >= thread_nonce_end) {
             wait_for_work_restart_after_nonce_exhaustion(thread_id, work.restart_generation,
+                                                         work_update_snapshot,
                                                          &rate_window_start, &rate_window_hashes,
                                                          &rate_window_scan_sec);
             continue;
@@ -1485,6 +1499,7 @@ void *miner_thread(void *userdata)
         // scanning into other threads' ranges (causes duplicate shares)
         if (nonces_found == 0 && next_nonce_index >= thread_nonce_end) {
             wait_for_work_restart_after_nonce_exhaustion(thread_id, work.restart_generation,
+                                                         work_update_snapshot,
                                                          &rate_window_start, &rate_window_hashes,
                                                          &rate_window_scan_sec);
             continue;  // Skip hashrate update, go back to get_work

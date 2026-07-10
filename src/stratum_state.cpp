@@ -89,6 +89,19 @@ void stratum_publish_work(const struct work *new_work, bool should_restart)
     }
 }
 
+/* Monotonic count of ALL accepted work updates (published or not restart-
+ * worthy). Exhausted miner threads wake on this, not just the restart
+ * generation: a non-clean same-height/same-target refresh doesn't bump the
+ * generation, but its changed preimage can make an exhausted partition
+ * scannable again (see the exhaustion-escape reset in miner_thread). */
+uint64_t stratum_work_update_count(void)
+{
+    pthread_mutex_lock(&stratum_work_lock);
+    uint64_t n = g_runtime_state.work_updates_total;
+    pthread_mutex_unlock(&stratum_work_lock);
+    return n;
+}
+
 bool stratum_prepare_work_update_locked(const struct work *new_work, bool clean)
 {
     bool height_changed = !g_runtime_state.work_ready ||
