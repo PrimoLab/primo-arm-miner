@@ -452,8 +452,6 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	/* Per-thread CLHash variant: hand-asm on big cores, portable C otherwise.
 	 * The selftest below always references the portable _noasm x1, so
 	 * VERUS_X2_SELFTEST=1 also validates _asm == _noasm at runtime. */
-	const verus_clhash_x1_fn clhash_x1 = use_asm ? verusclhash_port2_2_native_asm
-	                                             : verusclhash_port2_2_native_noasm;
 	const verus_clhash_x2_fn clhash_x2 = use_asm
 		? (use_fused ? verusclhash_port2_2_x2f_native_asm : verusclhash_port2_2_x2_native_asm)
 		: (use_fused ? verusclhash_port2_2_x2f_native_noasm : verusclhash_port2_2_x2_native_noasm);
@@ -550,22 +548,46 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 		}
 	}
 
-	/* Single-nonce path: handles VERUS_X2=0 and the odd remainder hash. */
-	while (scanned_hashes < max_hashes &&
-	       !miner_work_restart_requested(work->restart_generation) &&
-	       !miner_should_abort()) {
-		((uint32_t *)(&nonce_space[11]))[0] = nonce_buf;
+	/* Single-nonce path: handles VERUS_X2=0 and the odd remainder hash.
+	 * Two A55-oriented micro-optimizations (this is the LITTLE-core path —
+	 * big cores take the x2 loop above, which is unchanged):
+	 * - The restart/abort flags are checked once per 8 hashes instead of
+	 *   every hash: both are acquire loads (LDAR), which on in-order A55
+	 *   issue only from slot 0. Worst-case extra restart latency is 8
+	 *   hashes (~15 us on A55) — irrelevant.
+	 * - The loop body lives in an always_inline lambda invoked with LITERAL
+	 *   function symbols, so clang constant-folds the CLHash call into a
+	 *   direct BL. The loop-invariant `clhash_x1` pointer still compiled to
+	 *   a per-hash BLR, which A55 issues only from slot 1 (BL dual-issues).
+	 *   The CLHash entries keep their own noinline (see clhash_native.c —
+	 *   LTO inlining them miscompiles under strict aliasing); only the call
+	 *   SITE becomes static. */
+	{
+		auto run_x1_loop = [&](verus_clhash_x1_fn fn) __attribute__((always_inline)) {
+			uint32_t flag_check_ctr = 0;
+			while (scanned_hashes < max_hashes) {
+				if ((flag_check_ctr++ & 7u) == 0 &&
+				    (miner_work_restart_requested(work->restart_generation) ||
+				     miner_should_abort()))
+					break;
+				((uint32_t *)(&nonce_space[11]))[0] = nonce_buf;
 
-		compute_verus_hash(clhash_x1, (unsigned char *)candidate_hash, (unsigned char *)blockhash_half,
-			nonce_space, key_buffer, mutated_slots, mirrored_slots, preserved_values,
-			preserved_values_mirror);
-		scanned_hashes++;
-		nonce_buf++;
+				compute_verus_hash(fn, (unsigned char *)candidate_hash,
+					(unsigned char *)blockhash_half, nonce_space, key_buffer,
+					mutated_slots, mirrored_slots, preserved_values,
+					preserved_values_mirror);
+				scanned_hashes++;
+				nonce_buf++;
 
-		if (try_record_share(candidate_hash, nonce_space))
-			goto out;
+				if (try_record_share(candidate_hash, nonce_space))
+					break;   /* == goto out: the label directly follows */
+			}
+		};
+		if (use_asm)
+			run_x1_loop(verusclhash_port2_2_native_asm);
+		else
+			run_x1_loop(verusclhash_port2_2_native_noasm);
 	}
-
 
 out:
 
