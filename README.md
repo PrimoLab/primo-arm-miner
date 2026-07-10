@@ -51,6 +51,13 @@ sudo apk add curl jansson
 > libcurl.so`, your Termux packages are out of sync (libcurl newer than its
 > ngtcp2 dependency). Run `pkg update && pkg upgrade -y` and retry.
 
+> **DNS fallback:** if the system resolver can't resolve a pool hostname
+> (some public resolvers block mining pools; Android app sandboxes block
+> DNS for native subprocesses), the miner retries with a built-in resolver
+> that queries Cloudflare (1.1.1.1) / Google (8.8.8.8) directly. It only
+> runs after the system resolver fails; set `PRIMO_DNS_FALLBACK=0` to
+> disable it.
+
 ## Features
 
 - **Pure ARM-native, no x86 compatibility layer** — Verus, SHA256d, and scrypt paths written directly in ARM intrinsics and AArch64 assembly, not translated from SSE

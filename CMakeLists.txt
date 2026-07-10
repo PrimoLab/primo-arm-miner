@@ -101,6 +101,7 @@ set(SOURCES
     src/algorithm/sha256_ce_asm.S
     src/algorithm/scrypt_blockmix_asm.S
     src/utils/log.cpp
+    src/utils/dns_fallback.c
 )
 
 # RandomX (Monero). The vendored library builds through its OWN CMakeLists so

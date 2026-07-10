@@ -34,6 +34,11 @@ trusted LAN — reports that assume a hostile LAN are still welcome.
   hostname verification are disabled — the norm across mining software.
   Treat stratum TLS as transport privacy, not pool authentication; note
   that stratum credentials are a wallet address, not a secret.
+- **DNS fallback queries public resolvers directly.** When (and only when)
+  the system resolver fails, pool hostnames are resolved by querying
+  Cloudflare (1.1.1.1) then Google (8.8.8.8) over plain port 53 — this
+  bypasses the system resolver and reveals the pool hostname to those
+  services. Set `PRIMO_DNS_FALLBACK=0` to disable.
 
 ## Supported versions
 

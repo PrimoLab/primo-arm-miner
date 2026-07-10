@@ -84,7 +84,12 @@ only place to *validate* mining performance. Container-specific gotchas:
 - **DNS:** the app sandbox blocks `getaddrinfo` from a raw native subprocess
   ("Could not resolve host"), even though TCP works. `MinerService` resolves the
   pool host on the JVM side and launches the miner with the IP
-  (`config.runtime.json`); `stratum+tcp` needs no hostname.
+  (`config.runtime.json`); `stratum+tcp` needs no hostname. Hostnames the JVM
+  can't pre-resolve (the compiled-in dev-fee pools, pool-directed
+  `client.reconnect` targets) are covered by the miner's own **DNS fallback**
+  (`src/utils/dns_fallback.c`): on a resolver failure it queries
+  1.1.1.1/8.8.8.8 directly over plain sockets — which DO work in the
+  sandbox — and retries via `CURLOPT_RESOLVE`.
 
 Install: `adb install -r android/build/primo-arm-miner.apk`, or copy to the
 phone and tap it (enable "install unknown apps").

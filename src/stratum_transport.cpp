@@ -14,6 +14,9 @@
 
 #include <curl/curl.h>
 
+#include <arpa/inet.h>
+
+#include "dns_fallback.h"
 #include "miner.h"
 #include "stratum_internal.h"
 
@@ -563,8 +566,98 @@ static void stratum_close_transport_locked(struct stratum_ctx *sctx)
         curl_easy_cleanup(sctx->curl);
         sctx->curl = NULL;
     }
+    if (sctx->resolve_list) {
+        /* Safe only after the handle using it is gone (curl keeps the
+         * CURLOPT_RESOLVE list pointer for the handle's lifetime). */
+        curl_slist_free_all(sctx->resolve_list);
+        sctx->resolve_list = NULL;
+    }
     sctx->sock = CURL_SOCKET_BAD;
     stratum_reset_socket_buffer(sctx);
+}
+
+/* Extract "host" and numeric port from a stratum URL for the DNS-fallback
+ * retry. Bracketed IPv6 literals return false (nothing to resolve; the
+ * fallback is A-record/IPv4 only). Missing port falls back to the scheme
+ * default so the CURLOPT_RESOLVE entry matches what curl will look up. */
+static bool stratum_extract_host_port(const struct stratum_ctx *sctx,
+                                      char *host_out, size_t host_out_len,
+                                      int *port_out)
+{
+    const char *p = strstr(sctx->url, "://");
+    const char *host_start, *host_end, *port_str;
+    size_t host_len;
+
+    if (!p)
+        return false;
+    host_start = p + 3;
+    if (host_start[0] == '[')          /* IPv6 literal */
+        return false;
+
+    host_end = strchr(host_start, '/');
+    if (!host_end)
+        host_end = host_start + strlen(host_start);
+
+    port_str = NULL;
+    for (const char *q = host_end; q > host_start; ) {
+        q--;
+        if (*q == ':') { port_str = q; break; }
+    }
+    if (port_str) {
+        char *end = NULL;
+        long port = strtol(port_str + 1, &end, 10);
+        if (end != host_end || port <= 0 || port > 65535)
+            return false;
+        *port_out = (int)port;
+        host_end = port_str;
+    } else {
+        *port_out = sctx->use_tls ? 443 : 80;
+    }
+
+    host_len = (size_t)(host_end - host_start);
+    if (host_len == 0 || host_len >= host_out_len)
+        return false;
+    memcpy(host_out, host_start, host_len);
+    host_out[host_len] = '\0';
+    return true;
+}
+
+/* On a resolver failure, try the self-contained fallback resolver (see
+ * dns_fallback.h: Android subprocess getaddrinfo sandbox — which strands the
+ * compiled-in dev-fee hostnames and client.reconnect targets — and
+ * pool-filtering public resolvers). The result is injected into curl's DNS
+ * cache via CURLOPT_RESOLVE so hostname semantics (SNI/Host) are preserved,
+ * then the connect is retried once on the same handle. */
+static CURLcode stratum_retry_with_dns_fallback(struct stratum_ctx *sctx,
+                                                CURL *curl, CURLcode rc)
+{
+    char host[256];
+    char ip[INET_ADDRSTRLEN];
+    char entry[300];
+    struct curl_slist *resolve;
+    int port = 0;
+
+    if (rc != CURLE_COULDNT_RESOLVE_HOST)
+        return rc;
+    if (!stratum_extract_host_port(sctx, host, sizeof(host), &port))
+        return rc;
+    if (dns_fallback_resolve_ipv4(host, ip, sizeof(ip)) != 0)
+        return rc;
+
+    snprintf(entry, sizeof(entry), "%s:%d:%s", host, port, ip);
+    resolve = curl_slist_append(NULL, entry);
+    if (!resolve)
+        return rc;
+
+    applog(LOG_WARNING,
+           "DNS: platform resolver failed for %s — fallback resolver got %s, retrying",
+           host, ip);
+    if (sctx->resolve_list)
+        curl_slist_free_all(sctx->resolve_list);
+    sctx->resolve_list = resolve;
+    curl_easy_setopt(curl, CURLOPT_RESOLVE, resolve);
+    sctx->curl_err_str[0] = '\0';
+    return curl_easy_perform(curl);
 }
 
 void stratum_close_transport(struct stratum_ctx *sctx)
@@ -639,6 +732,8 @@ bool stratum_connect(struct stratum_ctx *sctx)
     curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 1);
 
     rc = curl_easy_perform(curl);
+    if (rc)
+        rc = stratum_retry_with_dns_fallback(sctx, curl, (CURLcode)rc);
     if (rc) {
         stratum_log_connect_failure(sctx, (CURLcode)rc);
         stratum_close_transport(sctx);

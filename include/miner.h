@@ -146,6 +146,9 @@ struct stratum_ctx {
     char *url;
     CURL *curl;
     char *curl_url;
+    /* CURLOPT_RESOLVE entries from the DNS fallback resolver (see
+     * dns_fallback.h); must outlive the easy handle, freed on close. */
+    struct curl_slist *resolve_list;
     char curl_err_str[CURL_ERROR_SIZE];
     curl_socket_t sock;
     size_t sockbuf_size;

@@ -119,6 +119,7 @@ LDLIBS += $(PRIMO_LDLIBS)
 CLHASH_EXTRA_FLAGS ?=
 
 SOURCES_C = \
+	src/utils/dns_fallback.c \
 	src/algorithm/clhash_native.c \
 	src/algorithm/clhash_native_noasm.c \
 	src/algorithm/haraka_native.c \
