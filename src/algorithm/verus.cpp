@@ -216,7 +216,7 @@ static void generate_cl_key(unsigned char *seed_bytes_32, verus_vec128_t *key_bu
 	unsigned char *key_ptr = (unsigned char *)key_buffer;
 	unsigned char *source_ptr = seed_bytes_32;
 	
-#pragma clang unroll(full) vectorize(enable)
+#pragma clang loop unroll(full) vectorize(enable)
 	for (uint32_t block_index = 0; block_index < kChainKeyBlocks; block_index++)
 	{
 		haraka256_native(key_ptr, source_ptr);
