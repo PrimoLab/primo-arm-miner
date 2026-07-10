@@ -417,6 +417,7 @@ void miner_get_api_snapshot(struct miner_api_snapshot *snapshot);
 // topology lock cpu_topology_refresh() writes under, so callers outside
 // miner.cpp (e.g. api.cpp) don't need direct access to g_cpu_cores/g_num_cpus.
 int miner_topology_max_cpu_freq_mhz(void);
+int miner_topology_num_cpus(void);
 
 // Stratum functions
 bool stratum_connect(struct stratum_ctx *sctx);

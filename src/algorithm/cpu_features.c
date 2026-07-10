@@ -5,6 +5,7 @@
 #include <asm/hwcap.h>
 #endif
 
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -523,7 +524,10 @@ const char *cpu_part_name(int implementer, int part_number) {
 
 static int g_cpu_thermal_zones[MAX_THERMAL_ZONES];
 static int g_num_cpu_zones = 0;
-static bool g_thermal_init = false;
+/* One-time zone discovery: get_cpu_temp() is called concurrently by the
+ * display and API threads; a plain "init flag set before the arrays fill"
+ * pattern let a second caller read a half-populated zone list. */
+static pthread_once_t g_thermal_once = PTHREAD_ONCE_INIT;
 
 static void detect_thermal_zones(void) {
 #ifdef __linux__
@@ -531,7 +535,6 @@ static void detect_thermal_zones(void) {
     int num_fallback = 0;
 
     g_num_cpu_zones = 0;
-    g_thermal_init = true;
 
     /* MediaTek BSPs commonly expose dozens of zones; scan a wide range. */
     for (int z = 0; z < 128 && g_num_cpu_zones < MAX_THERMAL_ZONES; z++) {
@@ -602,8 +605,7 @@ static int read_thermal_zone_temp(int z)
 
 int get_cpu_temp(void) {
 #ifdef __linux__
-    if (!g_thermal_init)
-        detect_thermal_zones();
+    pthread_once(&g_thermal_once, detect_thermal_zones);
 
     int max_temp = -1;
 

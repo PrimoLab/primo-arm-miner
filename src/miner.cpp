@@ -1143,6 +1143,14 @@ void miner_get_api_snapshot(struct miner_api_snapshot *snapshot)
     pthread_mutex_unlock(&stats_lock);
 }
 
+int miner_topology_num_cpus(void)
+{
+    pthread_mutex_lock(&g_topology_lock);
+    int n = g_num_cpus;
+    pthread_mutex_unlock(&g_topology_lock);
+    return n;
+}
+
 int miner_topology_max_cpu_freq_mhz(void)
 {
     pthread_mutex_lock(&g_topology_lock);

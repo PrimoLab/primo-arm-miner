@@ -981,9 +981,12 @@ static char *build_hwinfo_response(char *out, size_t out_size, const char *param
     (void)params;
 
     cpu_temp = get_cpu_temp();
+    /* Topology globals are hotplug-mutable; read via the locked helper
+     * (g_topology_lock is static to miner.cpp) — see CLAUDE.md locking notes. */
+    int api_num_cpus = miner_topology_num_cpus();
     snprintf(out, out_size, "OS=%s;NVDRIVER=%s;CPUS=%d;CPUTEMP=%d;CPUFREQ=%d|",
              api_get_os_name(os_name, sizeof(os_name)), "",
-             g_num_cpus > 0 ? g_num_cpus : opt_n_threads,
+             api_num_cpus > 0 ? api_num_cpus : opt_n_threads,
              cpu_temp > 0 ? cpu_temp : 0, miner_topology_max_cpu_freq_mhz());
     return out;
 }
