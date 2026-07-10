@@ -1616,9 +1616,17 @@ static void destroy_pool_contexts(int initialized_pools)
 
 static void stop_all_pool_services(int initialized_pools)
 {
-    for (int i = 0; i < initialized_pools; i++) {
-        stratum_stop_service(&pools[i].stratum);
-    }
+    /* Shut down EVERY pool socket before joining: the single service thread
+     * may be blocked in recv on any of them (failover / dev-fee switches),
+     * and joining while its socket is still open stalls for up to
+     * opt_timeout seconds. */
+    for (int i = 0; i < initialized_pools; i++)
+        stratum_request_shutdown(&pools[i].stratum);
+
+    stratum_join_service_thread();
+
+    for (int i = 0; i < initialized_pools; i++)
+        stratum_thread_active_store(&pools[i].stratum, 0);
 }
 
 static void stop_pool_runtime_services(struct mining_runtime *runtime)

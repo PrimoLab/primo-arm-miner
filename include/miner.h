@@ -176,9 +176,7 @@ struct stratum_ctx {
     pthread_mutex_t submit_lock;
     uint32_t next_submit_id;
     struct pending_submit pending_submits[MAX_PENDING_SUBMITS];
-    pthread_t thread;
     int thread_active;
-    bool thread_created;  // true if pthread_create succeeded; guards pthread_join
 };
 
 // Pool configuration, connection state, and share counters.
@@ -359,16 +357,6 @@ static inline int stratum_thread_active_load(const struct stratum_ctx *sctx)
 static inline void stratum_thread_active_store(struct stratum_ctx *sctx, int active)
 {
     __atomic_store_n(&sctx->thread_active, active, __ATOMIC_RELEASE);
-}
-
-static inline bool stratum_thread_created_load(const struct stratum_ctx *sctx)
-{
-    return __atomic_load_n(&sctx->thread_created, __ATOMIC_ACQUIRE);
-}
-
-static inline void stratum_thread_created_store(struct stratum_ctx *sctx, bool created)
-{
-    __atomic_store_n(&sctx->thread_created, created, __ATOMIC_RELEASE);
 }
 
 static inline int stratum_is_verus_protocol_load(const struct stratum_ctx *sctx)

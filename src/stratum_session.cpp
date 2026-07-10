@@ -8,6 +8,19 @@
 #include "miner.h"
 #include "stratum_internal.h"
 
+/* The single stratum service thread is RUNTIME-owned: created and joined by
+ * the main thread only, never by the service thread itself. Join ownership
+ * used to live in per-context thread_created flags that the service thread
+ * transferred between pools in stratum_switch_to_pool(); that raced shutdown
+ * two ways: a high-to-low pool switch during stop_all_pool_services' index
+ * walk could move the flag onto a pool the walk had already inspected (no
+ * join at all — algorithm teardown then ran under a live stratum thread),
+ * and a fast-failing primary could switch before stratum_start_service
+ * stored the initial flag, leaving TWO contexts flagged (double
+ * pthread_join = UB). */
+static pthread_t g_service_thread;
+static bool g_service_thread_created = false;
+
 static int stratum_find_next_pool_index(int current_pool_index)
 {
     if (num_pools <= 1)
@@ -45,13 +58,7 @@ static bool stratum_switch_to_pool(struct pool_infos **pool_io, struct stratum_c
 
     *pool_io = &pools[next_pool_index];
     *sctx_io = &(*pool_io)->stratum;
-    (*sctx_io)->thread = pthread_self();
     stratum_thread_active_store(*sctx_io, 1);
-    /* The single service thread now lives on the new sctx. Transfer the
-     * join-ownership flag so shutdown joins (and shuts down the socket of)
-     * the pool we are actually blocked on, not the one we migrated away from. */
-    stratum_thread_created_store(current_sctx, false);
-    stratum_thread_created_store(*sctx_io, true);
     miner_set_current_pool_index(next_pool_index);
 
     return true;
@@ -244,17 +251,30 @@ bool stratum_start_service(struct pool_infos *pool)
 {
     struct stratum_ctx *sctx = &pool->stratum;
 
-    if (stratum_thread_active_load(sctx))
+    if (g_service_thread_created || stratum_thread_active_load(sctx))
         return true;
 
-    if (pthread_create(&sctx->thread, NULL, stratum_service_thread, pool)) {
+    if (pthread_create(&g_service_thread, NULL, stratum_service_thread, pool)) {
         applog(LOG_ERR, "Failed to create stratum thread");
         return false;
     }
 
-    stratum_thread_created_store(sctx, true);
+    g_service_thread_created = true;
     stratum_thread_active_store(sctx, 1);
     return true;
+}
+
+/* Join the service thread (main-thread only, like stratum_start_service).
+ * The caller must wake it first: it can be blocked in recv on ANY pool's
+ * socket after failover/dev-fee switches, so shut down every pool socket
+ * before joining (see stop_all_pool_services in miner.cpp). */
+void stratum_join_service_thread(void)
+{
+    if (!g_service_thread_created)
+        return;
+
+    pthread_join(g_service_thread, NULL);
+    g_service_thread_created = false;
 }
 
 bool stratum_wait_ready(int timeout_seconds, bool *work_ready_out)
@@ -434,18 +454,13 @@ bool stratum_is_authenticated(const struct stratum_ctx *sctx)
 
 void stratum_stop_service(struct stratum_ctx *sctx)
 {
-    if (!stratum_thread_created_load(sctx))
-        return;
-
-    /* Shut down the socket unconditionally before joining. After a failover the
-     * thread can be blocked in recv on this (the new) pool while thread_active
-     * has already been cleared on the old sctx, so gating on thread_active would
-     * skip the wakeup and stall the join for up to opt_timeout seconds.
-     * shutdown() on an already-closed socket is a harmless no-op. */
+    /* Shut down this pool's socket unconditionally before joining — the
+     * thread may be blocked in recv on it, and shutdown() on an
+     * already-closed socket is a harmless no-op. If the thread might be
+     * parked on a DIFFERENT pool's socket, the caller must shut down all
+     * pool sockets before the join (see stop_all_pool_services). */
     stratum_request_shutdown(sctx);
-
-    pthread_join(sctx->thread, NULL);
-    stratum_thread_created_store(sctx, false);
+    stratum_join_service_thread();
     stratum_thread_active_store(sctx, 0);
 }
 
@@ -483,7 +498,6 @@ void stratum_init_context(struct stratum_ctx *sctx, int pooln, bool is_verus_pro
     sctx->next_submit_id = 10;
     sctx->reconnect_requested = 0;
     stratum_thread_active_store(sctx, 0);
-    stratum_thread_created_store(sctx, false);
     memset(sctx->pending_submits, 0, sizeof(sctx->pending_submits));
     pthread_mutex_init(&sctx->submit_lock, NULL);
 }
