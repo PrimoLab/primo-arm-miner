@@ -73,9 +73,9 @@ only place to *validate* mining performance. Container-specific gotchas:
 ### Why the native build is special
 - The APK binary must depend only on **bionic system libs** (+ a bundled
   `libc++_shared.so`). `build_native_termux.sh` builds **static** libcurl
-  (TCP-only: `--without-ssl` etc. — pools are `stratum+tcp://`) + static
-  libjansson via `build_static_deps_termux.sh`, then relinks the miner against
-  them. RandomX made two things matter that never did before: the standalone
+  (TLS via static **mbedTLS**, so `stratum+ssl://` works from the APK too) +
+  static libjansson via `build_static_deps_termux.sh`, then relinks the miner
+  against them. RandomX made two things matter that never did before: the standalone
   clang-16 ships **no libc++ headers** (the clang++ wrapper adds Termux's
   `include/c++/v1` — the miner's own C++ never needed them), and the relink
   must link Termux's `libc++_shared.so` explicitly (`-nostdlib++`) because the

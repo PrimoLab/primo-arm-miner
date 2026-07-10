@@ -169,7 +169,9 @@ class MinerService : Service() {
      * fails with "Could not resolve host"), even though TCP works. So resolve
      * the pool host here on the JVM side (Android's resolver works for the app)
      * and write a runtime config with the host swapped for its IP. stratum+tcp
-     * carries no hostname dependency (no TLS/SNI), so the IP is equivalent.
+     * carries no hostname dependency; stratum+ssl still works because the
+     * miner does not verify pool certificates (see SECURITY.md), so no
+     * SNI/hostname match is needed.
      * The user's editable config.json is left untouched.
      */
     private fun prepareLaunchConfig(src: File): File {

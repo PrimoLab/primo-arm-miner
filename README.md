@@ -60,7 +60,7 @@ sudo apk add curl jansson
 - **RandomX (Monero)** — vendored reference library (tevador/RandomX, BSD-3) with the aarch64 JIT; fast mode (~2.1 GiB dataset) with automatic light-mode fallback (256 MiB) on low-RAM devices. Other rx/0 chains work too, including extended-header forks — Zephyr (ZEPH) is live-validated (`-a randomx` pointed at a ZEPH pool with a ZEPH wallet)
 - **ccminer-compatible control surface** — same CLI flags, JSON config format, and monitoring API
 - **Full stratum support** — standard (SHA256d/scrypt), Verus/equihash, and Monero (RandomX) dialects, multi-pool failover, TLS (`stratum+ssl://`) via the system libcurl with no extra TLS library linked
-- **Self-verifying** — every algorithm cross-checks its optimized kernels (including the hand-written assembly) against reference implementations at startup and refuses to mine on mismatch; `make test` runs the full harness including live share round-trips against a local mock pool
+- **Self-verifying** — SHA256d, scrypt, and RandomX cross-check their optimized kernels (including the hand-written assembly) against reference implementations at startup and refuse to mine on mismatch; the Verus interleaved/fused/asm paths are cross-checked under load by `make test` and at runtime with `VERUS_X2_SELFTEST=1`
 - **Tiny footprint** — a single ~508 KB binary (~260 KB built with `PRIMO_RANDOMX=0`), two runtime libraries (libcurl, libjansson)
 
 ## Performance
@@ -287,7 +287,7 @@ cp primo-arm-miner ccminer
 ### Supported Options
 
 **Mining:**
-- `-a, --algo` - Algorithm (`verus`, `sha256d`, `scrypt`)
+- `-a, --algo` - Algorithm (`verus`, `sha256d`, `scrypt`, `randomx`)
 - `-o, --url` - Pool URL
 - `-u, --user` - Wallet + worker
 - `-p, --pass` - Password
@@ -322,7 +322,7 @@ algorithm:
 
 - **Verus: 2%** (60s per 50 minutes) — reflecting that this miner is
   ~10%+ faster on Verus than the ccminer ARM builds it replaces
-- **SHA256d / Scrypt: 1%** (60s per 100 minutes)
+- **SHA256d / Scrypt / RandomX: 1%** (60s per 100 minutes)
 
 The first slice lands at a random point within the first cycle (re-drawn
 every start, so the fee can't be skipped with scheduled restarts); very

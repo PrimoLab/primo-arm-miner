@@ -813,12 +813,13 @@ void scrypt_cleanup(void) {
     }
 }
 
-/* Self-test with known Litecoin block test vector */
+/* Self-test: CONSISTENCY check between the miner's own scrypt paths on a
+ * synthetic header — it is NOT an external known-answer vector, so a mistake
+ * shared by every in-tree implementation would pass. (Real cross-checks: the
+ * SoA-4 kernel is verified against the single path at startup, and live
+ * share acceptance validates end-to-end correctness.) */
 int scrypt_selftest(void) {
-    /* Litecoin block 1 header (80 bytes) - this is a known test case */
-    /* The expected hash for this block is known and can be verified */
     static const uint8_t test_header[80] = {
-        /* This is a simplified test - just verify scrypt produces consistent output */
         0x01, 0x00, 0x00, 0x00, /* version */
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
