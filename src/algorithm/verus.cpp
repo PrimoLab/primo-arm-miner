@@ -28,8 +28,10 @@
 #define VERUS_GPRAND_SLOTS VERUS_CLHASH_MUT_SLOTS
 #endif
 
-// OPTIMIZATION: Enable direct native calls (bypass function pointers)
-// Set to 0 for portable build, 1 for native build
+// Historical name: predates the runtime variant dispatch. Variants are now
+// selected per thread via function pointers (see scanhash_verus); the x1
+// loop's call site is constant-folded to a direct BL via its always_inline
+// helper. This define only gates the native haraka/clhash code paths.
 #ifndef USE_DIRECT_NATIVE_CALL
 #define USE_DIRECT_NATIVE_CALL 1
 #endif
