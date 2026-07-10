@@ -20,9 +20,12 @@
 #endif
 
 #ifndef VERUS_GPRAND_SLOTS
-// Keep this scratch region padded (historical 512 vectors) for stable A76
-// stack layout and throughput. Logical mutation count remains 32.
-#define VERUS_GPRAND_SLOTS (VERUS_CLHASH_MUT_SLOTS * 16)
+// Sized to the logical mutation count. The historical 512-vector padding
+// ("stable A76 stack layout") was re-measured 2026-07-10 (RK3588, interleaved
+// 90s brackets): 32 slots is +0.3% on 4T A55 (2263->2270 kH/s, smaller frame
+// helps the in-order core) and a wash on 4T A76 x2f (5577 vs 5576 kH/s
+// medians) — and it cuts ~30 KB of stack per mining thread.
+#define VERUS_GPRAND_SLOTS VERUS_CLHASH_MUT_SLOTS
 #endif
 
 // OPTIMIZATION: Enable direct native calls (bypass function pointers)
