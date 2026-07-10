@@ -192,7 +192,8 @@ static int parse_cli_int_option(const char *arg, const char *option_name)
     return (int)parsed;
 }
 
-static void copy_pool_string(char *dst, size_t dst_size, const char *src)
+static void copy_pool_string(char *dst, size_t dst_size, const char *src,
+                             const char *what)
 {
     if (dst_size == 0)
         return;
@@ -202,7 +203,14 @@ static void copy_pool_string(char *dst, size_t dst_size, const char *src)
         return;
     }
 
-    snprintf(dst, dst_size, "%s", src);
+    /* Silent truncation would alter a URL/wallet/password into a different,
+     * valid-looking value — warn loudly instead (value itself not logged:
+     * it may be a password). */
+    if (snprintf(dst, dst_size, "%s", src) >= (int)dst_size)
+        applog(LOG_WARNING,
+               "config: pool %s longer than %zu characters was TRUNCATED — "
+               "check your configuration",
+               what, dst_size - 1);
 }
 
 static void clear_pool_option_defaults(void)
@@ -212,13 +220,13 @@ static void clear_pool_option_defaults(void)
 
 static void set_pool_default_url(const char *value)
 {
-    copy_pool_string(pool_defaults.url, sizeof(pool_defaults.url), value);
+    copy_pool_string(pool_defaults.url, sizeof(pool_defaults.url), value, "url");
     pool_defaults.url_set = value && value[0];
 }
 
 static void set_pool_default_user(const char *value)
 {
-    copy_pool_string(pool_defaults.user, sizeof(pool_defaults.user), value);
+    copy_pool_string(pool_defaults.user, sizeof(pool_defaults.user), value, "user/wallet");
     pool_defaults.user_set = value != NULL;
 }
 
@@ -242,7 +250,7 @@ static void set_pool_default_user_span(const char *value, size_t value_len)
 
 static void set_pool_default_pass(const char *value)
 {
-    copy_pool_string(pool_defaults.pass, sizeof(pool_defaults.pass), value ? value : "");
+    copy_pool_string(pool_defaults.pass, sizeof(pool_defaults.pass), value ? value : "", "password");
     pool_defaults.pass_set = value != NULL;
 }
 
@@ -276,7 +284,7 @@ static void derive_pool_short_url(int pool_index)
     else
         short_url = url;
 
-    copy_pool_string(pools[pool_index].short_url, sizeof(pools[pool_index].short_url), short_url);
+    copy_pool_string(pools[pool_index].short_url, sizeof(pools[pool_index].short_url), short_url, "url");
 }
 
 static void exit_with_usage(int status)
@@ -323,12 +331,12 @@ static void apply_pool_default_credentials(int pool_index, bool update_user, boo
 
     if (update_user && pool_defaults.user_set &&
         (!only_missing || !pool_config_user_set[pool_index])) {
-        copy_pool_string(pools[pool_index].user, sizeof(pools[pool_index].user), pool_defaults.user);
+        copy_pool_string(pools[pool_index].user, sizeof(pools[pool_index].user), pool_defaults.user, "user/wallet");
     }
 
     if (update_pass && pool_defaults.pass_set &&
         (!only_missing || !pool_config_pass_set[pool_index])) {
-        copy_pool_string(pools[pool_index].pass, sizeof(pools[pool_index].pass), pool_defaults.pass);
+        copy_pool_string(pools[pool_index].pass, sizeof(pools[pool_index].pass), pool_defaults.pass, "password");
     }
 }
 
@@ -387,7 +395,13 @@ static int parse_pool_timeout_json(json_t *value)
     if (!value || !json_is_integer(value))
         return 0;
 
-    parsed = (int)json_integer_value(value);
+    json_int_t raw = json_integer_value(value);
+    if (raw > INT_MAX) {
+        applog(LOG_WARNING, "pool timeout %lld out of range — ignored",
+               (long long)raw);
+        return 0;
+    }
+    parsed = (int)raw;
     return parsed > 0 ? parsed : 0;
 }
 
@@ -711,7 +725,7 @@ static void apply_option(int key, const char *arg)
         }
         set_pool_default_url(arg);
         if (cur_pooln >= 0 && cur_pooln < MAX_POOLS) {
-            copy_pool_string(pools[cur_pooln].url, sizeof(pools[cur_pooln].url), arg);
+            copy_pool_string(pools[cur_pooln].url, sizeof(pools[cur_pooln].url), arg, "url");
             derive_pool_short_url(cur_pooln);
             apply_pool_default_credentials(cur_pooln, true, true, false);
         }
@@ -816,9 +830,9 @@ static void apply_configured_pool(json_t *pool_config, size_t pool_index)
 
     if (name && json_is_string(name))
         copy_pool_string(pools[pool_index].name, sizeof(pools[pool_index].name),
-                         json_string_value(name));
+                         json_string_value(name), "name");
 
-    copy_pool_string(pools[pool_index].url, sizeof(pools[pool_index].url), url_value);
+    copy_pool_string(pools[pool_index].url, sizeof(pools[pool_index].url), url_value, "url");
 
     derive_pool_short_url((int)pool_index);
 
@@ -827,11 +841,11 @@ static void apply_configured_pool(json_t *pool_config, size_t pool_index)
 
     if (pool_config_user_set[pool_index])
         copy_pool_string(pools[pool_index].user, sizeof(pools[pool_index].user),
-                         json_string_value(user));
+                         json_string_value(user), "user/wallet");
 
     if (pool_config_pass_set[pool_index])
         copy_pool_string(pools[pool_index].pass, sizeof(pools[pool_index].pass),
-                         json_string_value(pass));
+                         json_string_value(pass), "password");
 
     apply_pool_default_credentials((int)pool_index, true, true, true);
 
@@ -848,8 +862,16 @@ static void apply_json_scalar_option(const struct option *option, json_t *value)
     }
 
     if (option->has_arg && json_is_integer(value)) {
+        /* Range-check BEFORE narrowing: (int)4294967297 would silently
+         * become 1 (e.g. "threads") instead of being rejected. */
+        json_int_t raw = json_integer_value(value);
+        if (raw < INT_MIN || raw > INT_MAX) {
+            applog(LOG_ERR, "Invalid value for %s: %lld (out of range)",
+                   option->name, (long long)raw);
+            exit_with_usage(1);
+        }
         char buf[16];
-        snprintf(buf, sizeof(buf), "%d", (int)json_integer_value(value));
+        snprintf(buf, sizeof(buf), "%d", (int)raw);
         apply_option(option->val, buf);
         return;
     }
@@ -905,7 +927,7 @@ static void ensure_cli_pool_is_registered(void)
     if (num_pools != 0 || !pool_defaults.url_set)
         return;
 
-    copy_pool_string(pools[0].url, sizeof(pools[0].url), pool_defaults.url);
+    copy_pool_string(pools[0].url, sizeof(pools[0].url), pool_defaults.url, "url");
     derive_pool_short_url(0);
     apply_pool_default_credentials(0, true, true, false);
 
