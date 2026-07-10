@@ -243,6 +243,7 @@ extern int opt_retries;
 extern int opt_retry_pause;
 extern char *opt_api_bind;
 extern int opt_api_port;
+extern bool opt_api_port_explicit;
 extern int opt_statsavg;
 extern int opt_priority;
 extern bool opt_affinity_set;

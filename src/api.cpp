@@ -628,7 +628,11 @@ static int api_open_listen_socket(void)
         if (bind(listen_fd, (struct sockaddr *)&address, sizeof(address)) == 0)
             break;
 
-        if (opt_api_port == 4068 && errno == EADDRINUSE && port_probe_count < 64) {
+        /* Convenience probe ONLY for the implicit default port: an
+         * explicitly requested --api-bind port silently moving would strand
+         * whatever asked for it (the APK dashboard hardcodes its port). */
+        if (!opt_api_port_explicit &&
+            opt_api_port == 4068 && errno == EADDRINUSE && port_probe_count < 64) {
             port++;
             port_probe_count++;
             continue;

@@ -244,12 +244,25 @@ class MinerService : Service() {
     }
 
     override fun onDestroy() {
+        val proc: Process?
         synchronized(stateLock) {
             stopping = true  // before destroy(), so the exit watcher stays quiet
-            process?.destroy()
+            proc = process
+            proc?.destroy()
             process = null
             wakeLock?.let { if (it.isHeld) it.release() }
             wakeLock = null
+        }
+        // Bounded wait for the subprocess to actually die (destroy() is
+        // SIGKILL on Android, so this is normally instant). Without it, a
+        // fast restart could race the dying miner for the API port — the
+        // native side refuses to silently move an explicitly requested
+        // port, so a lost race is at least visible in miner.log.
+        if (proc != null) {
+            for (i in 0 until 20) {           // <= ~1 s
+                try { proc.exitValue(); break } catch (_: IllegalThreadStateException) {}
+                try { Thread.sleep(50) } catch (_: InterruptedException) { break }
+            }
         }
         running = false
         super.onDestroy()

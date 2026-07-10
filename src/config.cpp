@@ -41,6 +41,9 @@ int opt_retry_pause = 30;
  * "127.0.0.1" default at use time (see api_bind_address). */
 char *opt_api_bind = NULL;
 int opt_api_port = 4068;
+/* Set when the user supplied --api-bind: an explicitly requested port must
+ * fail loudly instead of silently probing upward (see api.cpp). */
+bool opt_api_port_explicit = false;
 int opt_statsavg = 30;
 int opt_priority = 0;
 bool opt_affinity_set = false;
@@ -630,6 +633,7 @@ static void parse_api_bind_argument(const char *arg)
 
         replace_config_string(&opt_api_bind, bind_host);
         opt_api_port = parsed_port;
+        opt_api_port_explicit = true;
         return;
     }
 
@@ -640,6 +644,7 @@ static void parse_api_bind_argument(const char *arg)
             exit_with_usage(1);
         }
         opt_api_port = parsed_port;
+        opt_api_port_explicit = true;
         return;
     }
 
