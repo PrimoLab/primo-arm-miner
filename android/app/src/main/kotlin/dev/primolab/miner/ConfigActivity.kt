@@ -167,6 +167,12 @@ class ConfigActivity : Activity() {
             Toast.makeText(this, "Primary pool URL is required", Toast.LENGTH_LONG).show()
             return
         }
+        // Native miner allows 1..32 (MAX_THREADS); anything else makes it
+        // exit on startup, which the dashboard would surface as a crash.
+        if (p.threads < 1 || p.threads > 32) {
+            Toast.makeText(this, "Threads must be between 1 and 32", Toast.LENGTH_LONG).show()
+            return
+        }
         ProfileStore.setLanApi(this, lanApi.isChecked)
         ProfileStore.commitActive(this, currentAlgo, p)
         val extra = p.pools.drop(1).count { it.url.isNotBlank() }
