@@ -56,6 +56,13 @@ class MinerService : Service() {
      *  tell a deliberate stop from a crash. */
     @Volatile private var stopping = false
 
+    /** True while one startMiner() is between its entry guard and its launch
+     *  (or failure). Repeated onStartCommand deliveries each spawn a launch
+     *  thread; without this, two of them could run prepareLaunchConfig()
+     *  concurrently against the same config.runtime.json (and its shared
+     *  .tmp name) before either reached the process != null re-check. */
+    private var launching = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -69,9 +76,21 @@ class MinerService : Service() {
     }
 
     private fun startMiner() {
-        // Fast-path duplicate/late-start guard. Racy starts that slip past
-        // this are caught again under stateLock before the actual launch.
-        synchronized(stateLock) { if (process != null || stopping) return }
+        // Duplicate/late-start guard: claim the launch slot atomically so a
+        // repeated delivery can't run config prep concurrently. The launch
+        // itself re-checks under stateLock before pb.start().
+        synchronized(stateLock) {
+            if (process != null || stopping || launching) return
+            launching = true
+        }
+        try {
+            launchMiner()
+        } finally {
+            synchronized(stateLock) { launching = false }
+        }
+    }
+
+    private fun launchMiner() {
         val binary = File(applicationInfo.nativeLibraryDir, "libprimo.so")
         if (!binary.exists()) {
             Log.e(TAG, "miner binary missing: ${binary.absolutePath}")
@@ -253,19 +272,48 @@ class MinerService : Service() {
             wakeLock?.let { if (it.isHeld) it.release() }
             wakeLock = null
         }
-        // Bounded wait for the subprocess to actually die (destroy() is
-        // SIGKILL on Android, so this is normally instant). Without it, a
-        // fast restart could race the dying miner for the API port — the
-        // native side refuses to silently move an explicitly requested
-        // port, so a lost race is at least visible in miner.log.
+        // Bounded wait for the subprocess to actually die. destroy() is NOT
+        // guaranteed to be SIGKILL on modern Android (ojluni sends SIGTERM;
+        // the docs call forced termination implementation-dependent), and a
+        // native shutdown can exceed a second (stratum thread mid-DNS or
+        // mid-connect). A survivor would squat the API port and make an
+        // immediate restart fail loudly — so after the graceful window,
+        // force-kill and wait again.
         if (proc != null) {
-            for (i in 0 until 20) {           // <= ~1 s
-                try { proc.exitValue(); break } catch (_: IllegalThreadStateException) {}
-                try { Thread.sleep(50) } catch (_: InterruptedException) { break }
+            if (!waitForExit(proc)) {
+                Log.w(TAG, "miner did not exit after destroy(); force killing")
+                forceKill(proc)
+                waitForExit(proc)
             }
         }
         running = false
         super.onDestroy()
+    }
+
+    /** Poll for subprocess exit for up to ~1 s. True = it exited. */
+    private fun waitForExit(proc: Process): Boolean {
+        for (i in 0 until 20) {
+            try { proc.exitValue(); return true } catch (_: IllegalThreadStateException) {}
+            try { Thread.sleep(50) } catch (_: InterruptedException) { return false }
+        }
+        return try { proc.exitValue(); true } catch (_: IllegalThreadStateException) { false }
+    }
+
+    private fun forceKill(proc: Process) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            proc.destroyForcibly()
+            return
+        }
+        // API 24/25: no destroyForcibly(). The subprocess is our own UID, so
+        // SIGKILL it directly via its pid (core-library reflection is not
+        // restricted on these API levels).
+        try {
+            val pidField = proc.javaClass.getDeclaredField("pid")
+            pidField.isAccessible = true
+            android.os.Process.sendSignal(pidField.getInt(proc), 9)
+        } catch (e: Exception) {
+            Log.w(TAG, "force kill failed: ${e.message}")
+        }
     }
 
     private fun acquireWakeLock() {
