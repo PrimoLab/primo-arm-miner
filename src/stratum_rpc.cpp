@@ -6,6 +6,7 @@
 
 #include <jansson.h>
 
+#include "dev_fee.h"
 #include "miner.h"
 #include "stratum_internal.h"
 
@@ -369,6 +370,26 @@ static bool stratum_handle_submit_response(struct stratum_ctx *sctx,
         const char *status =
             json_string_value(json_object_get(response->result, "status"));
         result_ok = status && strcasecmp(status, "OK") == 0;
+    }
+
+    /* Dev-slice shares stay out of ALL user-facing counters — not just the
+     * global totals (excluded inside stratum_update_share_stats) but also
+     * the per-thread stats the threads API reports. Logging the unchanged
+     * user totals here would read "Accepted share 0/0"; label the share as
+     * dev-fee instead. The hidden pool's own per-pool counters (bumped by
+     * stratum_update_share_stats) still record it for log validation. */
+    if (devfee_is_dev_pool(sctx->pooln)) {
+        stratum_update_share_stats(sctx->pooln, result_ok, NULL, NULL);
+        if (result_ok) {
+            applog(LOG_NOTICE, "%sAccepted%s dev-fee share (diff %.3f)",
+                   CL_GRN, CL_N, sharediff);
+        } else {
+            applog(LOG_WARNING, "%sRejected%s dev-fee share", CL_RED, CL_N);
+            const char *reason = stratum_get_reject_reason(response->error);
+            if (reason)
+                applog(LOG_WARNING, "Reject reason: %s", reason);
+        }
+        return true;
     }
 
     if (result_ok) {
