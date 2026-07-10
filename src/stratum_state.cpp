@@ -48,7 +48,7 @@ static void stratum_fill_api_work_snapshot(struct stratum_api_work_snapshot *sna
     snapshot->height = work->height;
 }
 
-void stratum_publish_work(const struct work *new_work, bool should_restart)
+void stratum_publish_work(const struct work *new_work, bool clean)
 {
     char job_id_copy[sizeof(g_runtime_state.current_work.job_id)];
     uint32_t work_height;
@@ -57,10 +57,37 @@ void stratum_publish_work(const struct work *new_work, bool should_restart)
     bool log_new_work = false;
 
     pthread_mutex_lock(&stratum_work_lock);
+
+    /* The restart decision and the update counters MUST be computed/bumped in
+     * the same critical section that installs the work. They used to be
+     * advanced by the commit path in an earlier hold of this lock; an
+     * exhausted miner thread waking on the advanced update counter could then
+     * copy the still-old current work, re-snapshot the counter, and sleep
+     * straight through this (non-restart) publication. */
+    bool height_changed = !g_runtime_state.work_ready ||
+        (new_work->height != g_runtime_state.current_work.height);
+    bool target_changed = !g_runtime_state.work_ready ||
+        (memcmp(new_work->target, g_runtime_state.current_work.target,
+                sizeof(new_work->target)) != 0);
+    bool should_restart = !g_runtime_state.work_ready || clean || height_changed || target_changed;
+
     if (!miner_work_copy(&g_runtime_state.current_work, new_work)) {
         pthread_mutex_unlock(&stratum_work_lock);
         applog(LOG_ERR, "Failed to publish work update");
         return;
+    }
+
+    g_runtime_state.work_updates_total++;
+    if (clean)
+        g_runtime_state.work_updates_clean++;
+    if (should_restart) {
+        g_runtime_state.work_restart_total++;
+        if (clean)
+            g_runtime_state.work_restart_clean++;
+        if (height_changed)
+            g_runtime_state.work_restart_height++;
+        if (target_changed)
+            g_runtime_state.work_restart_target++;
     }
 
     if (should_restart)
@@ -101,32 +128,6 @@ uint64_t stratum_work_update_count(void)
     uint64_t n = g_runtime_state.work_updates_total;
     pthread_mutex_unlock(&stratum_work_lock);
     return n;
-}
-
-bool stratum_prepare_work_update_locked(const struct work *new_work, bool clean)
-{
-    bool height_changed = !g_runtime_state.work_ready ||
-        (new_work->height != g_runtime_state.current_work.height);
-    bool target_changed = !g_runtime_state.work_ready ||
-        (memcmp(new_work->target, g_runtime_state.current_work.target,
-                sizeof(new_work->target)) != 0);
-    bool should_restart = !g_runtime_state.work_ready || clean || height_changed || target_changed;
-
-    g_runtime_state.work_updates_total++;
-    if (clean)
-        g_runtime_state.work_updates_clean++;
-
-    if (should_restart) {
-        g_runtime_state.work_restart_total++;
-        if (clean)
-            g_runtime_state.work_restart_clean++;
-        if (height_changed)
-            g_runtime_state.work_restart_height++;
-        if (target_changed)
-            g_runtime_state.work_restart_target++;
-    }
-
-    return should_restart;
 }
 
 void stratum_update_share_stats(int pooln, bool accepted, uint32_t *accepted_out, uint32_t *rejected_out)

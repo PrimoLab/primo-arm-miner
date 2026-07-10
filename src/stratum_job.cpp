@@ -109,7 +109,6 @@ bool stratum_commit_job_update(struct stratum_ctx *sctx, stratum_job_apply_fn ap
     stratum_work_build_fn build_work_locked, void *opaque, bool clean)
 {
     struct work new_work;
-    bool should_restart;
 
     if (!miner_work_init(&new_work))
         return false;
@@ -122,10 +121,9 @@ bool stratum_commit_job_update(struct stratum_ctx *sctx, stratum_job_apply_fn ap
     }
 
     build_work_locked(sctx, &new_work);
-    should_restart = stratum_prepare_work_update_locked(&new_work, clean);
     pthread_mutex_unlock(&stratum_work_lock);
 
-    stratum_publish_work(&new_work, should_restart);
+    stratum_publish_work(&new_work, clean);
     miner_work_cleanup(&new_work);
     return true;
 }

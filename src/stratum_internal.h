@@ -115,6 +115,7 @@ bool stratum_update_active_work_height_locked(int pooln, const char *job_id, uin
 bool stratum_start_service(struct pool_infos *pool);
 bool stratum_wait_ready(int timeout_seconds, bool *work_ready_out);
 void stratum_stop_service(struct stratum_ctx *sctx);
+void stratum_join_service_thread(void);
 bool stratum_open_pool_connection(struct pool_infos *pool);
 void stratum_run_message_loop(struct stratum_ctx *sctx);
 void stratum_init_context(struct stratum_ctx *sctx, int pooln, bool is_verus_protocol);
@@ -123,8 +124,7 @@ void stratum_destroy_context(struct stratum_ctx *sctx);
 uint32_t stratum_submit_id_next(struct stratum_ctx *sctx);
 bool stratum_send_submit(struct stratum_ctx *sctx, const char *line, uint32_t submit_id, double sharediff,
     int thread_id, const char *label);
-void stratum_publish_work(const struct work *new_work, bool should_restart);
-bool stratum_prepare_work_update_locked(const struct work *new_work, bool clean);
+void stratum_publish_work(const struct work *new_work, bool clean);
 bool stratum_commit_job_update(struct stratum_ctx *sctx, stratum_job_apply_fn apply_job_locked,
     stratum_work_build_fn build_work_locked, void *opaque, bool clean);
 void stratum_update_share_stats(int pooln, bool accepted, uint32_t *accepted_out, uint32_t *rejected_out);
