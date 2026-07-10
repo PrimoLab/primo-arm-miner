@@ -9,9 +9,12 @@
 #   pkg install openjdk-17 kotlin aapt aapt2 d8 apksigner android-tools zip
 #
 # Inputs you must stage first:
-#   1. Build the native miner (Android/bionic arm64) with the repo's
-#      build_termux.sh, then copy it in renamed as a .so:
-#        cp ../primo-arm-miner app/src/main/jniLibs/arm64-v8a/libprimo.so
+#   1. Build the SELF-CONTAINED native miner with android/build_native_termux.sh
+#      — it stages app/src/main/jniLibs/arm64-v8a/{libprimo.so,libc++_shared.so}
+#      itself (static curl/mbedTLS/jansson, bionic-only NEEDED deps). Do NOT
+#      package the plain build_termux.sh binary: it links Termux's shared
+#      libcurl/libjansson, which don't exist inside the app sandbox, so the
+#      miner won't start (the preflight below rejects it when readelf exists).
 #   2. android.jar (API 33) — NOT a Termux package; fetched automatically below
 #      from a public platforms mirror into ~/.primo-android-sdk/ (override with
 #      ANDROID_JAR=/path/to/android.jar).
@@ -39,6 +42,23 @@ for t in aapt2 d8 apksigner zipalign kotlinc keytool javac zip; do
   command -v "$t" >/dev/null 2>&1 || die "missing '$t' — run: pkg install openjdk-17 kotlin aapt aapt2 d8 apksigner android-tools zip"
 done
 [ -f "$JNILIB" ] || die "native miner not staged at $JNILIB (see header step 1)"
+
+# The packaged miner must be self-contained: every DT_NEEDED entry must be
+# either bionic or staged alongside it in jniLibs. A Termux-linked binary
+# (plain build_termux.sh output) passes the exists-check above but cannot
+# start inside the app sandbox — catch it here instead of on-device.
+if command -v readelf >/dev/null 2>&1; then
+  MISSING_NEEDED=""
+  while read -r so; do
+    case "$so" in
+      libc.so|libm.so|libdl.so|liblog.so) ;;                # bionic
+      *) [ -f "$(dirname "$JNILIB")/$so" ] || MISSING_NEEDED="$MISSING_NEEDED $so" ;;
+    esac
+  done < <(readelf -d "$JNILIB" | sed -n 's/.*(NEEDED).*\[\(.*\)\].*/\1/p')
+  [ -z "$MISSING_NEEDED" ] || die "libprimo.so NEEDED deps not bionic/staged:$MISSING_NEEDED — build it with android/build_native_termux.sh (see header step 1)"
+else
+  say "readelf not found — skipping libprimo.so self-containedness check (pkg install binutils)"
+fi
 
 # kotlin-stdlib must be on the dex; locate the Termux copy.
 KOTLIN_STDLIB=$(find "$PREFIX" -name 'kotlin-stdlib.jar' 2>/dev/null | head -1)
