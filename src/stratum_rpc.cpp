@@ -347,8 +347,16 @@ static bool stratum_handle_submit_response(struct stratum_ctx *sctx,
     int thread_id = -1;
 
     bool have_metadata = submit_id_take_metadata(sctx, response->id, &sharediff, &thread_id);
-    if (!have_metadata && opt_debug)
-        applog(LOG_DEBUG, "No pending submit metadata for response id %u", response->id);
+    if (!have_metadata) {
+        /* No pending submit matches this id: a duplicate, unsolicited, or
+         * otherwise uncorrelated response. Counting it would corrupt the
+         * accepted/rejected totals (API, final stats, per-pool counters)
+         * with shares that were never submitted — log and drop instead. */
+        applog(LOG_WARNING,
+               "Ignoring uncorrelated stratum response id %u (result=%s)",
+               response->id, json_is_true(response->result) ? "true" : "false/other");
+        return true;
+    }
 
     /* A spec-compliant pool always sends an explicit result on a submit reply.
      * Treat a missing result as a rejection (json_is_true(NULL) is false) rather
