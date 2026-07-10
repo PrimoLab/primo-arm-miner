@@ -208,6 +208,19 @@ Takes effect the next time mining starts.
       layer-list fallback (`mipmap-anydpi`) so it works API 24+, foreground
       PNGs per density. App accent aligned to the site brand teal. Verified
       rendering on-device.
+- [x] **Service lifecycle serialized** (2026-07-10): `stateLock` guards
+      process/wakelock state; the async launch re-checks `stopping` after the
+      DNS/config prep so a quick Start→Stop can no longer orphan a miner
+      (which also squatted the 4068 API port); wakelock acquisition is
+      idempotent across repeated onStartCommand deliveries.
+- [x] **RootBooster hardened** (2026-07-10): `su` calls get a 5 s watchdog
+      (minSdk 24 has no `waitFor(timeout)`); root = exit 0 AND a line exactly
+      `0` (a `contains("0")` check misclassified uid 1000); timeouts aren't
+      cached so a later root grant still works.
+- [x] **License texts bundled** (2026-07-10): GPL-3.0 / NOTICE / RandomX BSD-3 /
+      Apache-2.0 ship in the APK under `assets/licenses/`; the first-launch
+      disclaimer states the license and source URL (GPL binary-distribution
+      compliance).
 - [ ] POST_NOTIFICATIONS runtime request (Android 13+) so the notification shows
 - [ ] targetSdk 34 needs a real `foregroundServiceType` justification (currently
       `dataSync` at targetSdk 33)
