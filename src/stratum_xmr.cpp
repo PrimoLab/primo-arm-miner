@@ -122,11 +122,19 @@ static bool xmr_parse_job_view(json_t *job, struct xmr_job_view *v)
         return false;
     }
 
-    if (seed && strlen(seed) == 64) {
-        if (!stratum_decode_hex_field(v->seed, seed, 32, "RandomX job", "seed_hash"))
-            return false;
-        v->have_seed = true;
+    /* rx/0 REQUIRES a valid seed per job: silently accepting a job without
+     * one meant hashing against the benchmark key (first job) or a stale
+     * previous seed — 100% bad shares with no error. A malformed length was
+     * equally silent. Ecosystem behavior (xmrig) also treats a seedless
+     * RandomX job as invalid, and a global "seed already seen" carve-out
+     * would be wrong across pool switches to a different rx/0 chain. */
+    if (!seed || strlen(seed) != 64) {
+        applog(LOG_ERR, "RandomX job: missing or malformed seed_hash — rejecting job");
+        return false;
     }
+    if (!stratum_decode_hex_field(v->seed, seed, 32, "RandomX job", "seed_hash"))
+        return false;
+    v->have_seed = true;
 
     if (json_is_integer(height_val))
         v->height = (uint32_t)json_integer_value(height_val);
