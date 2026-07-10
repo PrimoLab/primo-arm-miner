@@ -335,6 +335,11 @@ The first slice lands at a random point within the first cycle (re-drawn
 every start, so the fee can't be skipped with scheduled restarts); very
 short sessions usually pay nothing. If the dev pool is ever unreachable,
 the slice is skipped immediately — your mining time is never held up by it.
+One caveat for RandomX on a non-Monero rx/0 chain (e.g. Zephyr): the dev
+pool mines Monero, so each fee slice re-keys the shared dataset on entry
+and again on return (~14 s each in fast mode) — a real-world overhead the
+1% figure doesn't capture on those chains. Mining Monero itself has no
+such cost (same seed, no re-key).
 Implemented in `src/dev_fee.cpp`; the fee and the donations below are the
 project's only funding, and forks are of course free to change it (GPL).
 
