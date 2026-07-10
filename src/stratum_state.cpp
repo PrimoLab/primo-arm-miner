@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "dev_fee.h"
 #include "stratum_internal.h"
 
 struct stratum_runtime_state {
@@ -141,10 +142,16 @@ void stratum_update_share_stats(int pooln, bool accepted, uint32_t *accepted_out
         applog(LOG_WARNING, "Share result received for invalid pool index %d", pooln);
     }
 
-    if (accepted)
-        g_runtime_state.share_accepted_total++;
-    else
-        g_runtime_state.share_rejected_total++;
+    /* Dev-fee slice results stay OUT of the user-facing totals (API summary
+     * ACC/REJ, final stats) — they are not the user's shares. The hidden
+     * pool's own per-pool counters above still record them, so dev-fee
+     * validation in the logs keeps working. */
+    if (!devfee_is_dev_pool(pooln)) {
+        if (accepted)
+            g_runtime_state.share_accepted_total++;
+        else
+            g_runtime_state.share_rejected_total++;
+    }
 
     if (accepted_out)
         *accepted_out = g_runtime_state.share_accepted_total;
