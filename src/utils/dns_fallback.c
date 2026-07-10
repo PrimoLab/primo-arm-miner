@@ -8,6 +8,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -98,7 +99,8 @@ static int dns_skip_name(const uint8_t *msg, size_t msg_len, size_t pos)
  * Returns 1 = found, 0 = valid response but no A record (or error rcode),
  * -1 = malformed / not ours, -2 = truncated (retry over TCP). */
 static int dns_parse_response(const uint8_t *msg, size_t msg_len,
-                              uint16_t query_id, struct in_addr *addr_out)
+                              const uint8_t *query, size_t query_len,
+                              struct in_addr *addr_out)
 {
     uint16_t qdcount, ancount;
     int pos;
@@ -106,17 +108,30 @@ static int dns_parse_response(const uint8_t *msg, size_t msg_len,
 
     if (msg_len < 12)
         return -1;
-    if (((uint16_t)msg[0] << 8 | msg[1]) != query_id)
+    if (msg[0] != query[0] || msg[1] != query[1])  /* transaction id */
         return -1;
     if (!(msg[2] & 0x80))                          /* QR must be set */
         return -1;
     if (msg[2] & 0x02)                             /* TC — truncated */
         return -2;
-    if ((msg[3] & 0x0F) != 0)                      /* RCODE != NOERROR */
-        return 0;
 
     qdcount = (uint16_t)msg[4] << 8 | msg[5];
     ancount = (uint16_t)msg[6] << 8 | msg[7];
+
+    /* The response must echo our exact question: QDCOUNT=1 and identical
+     * qname/qtype/qclass bytes (the question section is never compressed —
+     * there is nothing earlier in the message to point into). Together with
+     * the connected UDP socket this rejects forged answers that guessed the
+     * port + 16-bit id but not the queried name. Checked before RCODE so a
+     * spoofed NXDOMAIN can't end the resolver-fallback walk either. */
+    if (qdcount != 1)
+        return -1;
+    if (msg_len < query_len || memcmp(msg + 12, query + 12, query_len - 12) != 0)
+        return -1;
+
+    if ((msg[3] & 0x0F) != 0)                      /* RCODE != NOERROR */
+        return 0;
+
     pos = 12;
 
     for (i = 0; i < qdcount; i++) {
@@ -174,12 +189,15 @@ static int dns_exchange_udp(const char *server, const uint8_t *query,
         return -1;
     dns_set_socket_timeouts(fd);
 
-    if (sendto(fd, query, query_len, 0, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
+    /* connect() the UDP socket so the kernel only delivers datagrams from
+     * the queried resolver — an unconnected recv() accepted a spoofed
+     * answer from ANY source that guessed the ephemeral port, leaving only
+     * the 16-bit transaction id as protection. */
+    if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) < 0 ||
+        send(fd, query, query_len, 0) < 0) {
         close(fd);
         return -1;
     }
-    /* connect()-less recvfrom: accept only a full datagram; the query-id
-     * check in the parser rejects strays. */
     n = recv(fd, resp, resp_cap, 0);
     close(fd);
     return n > 0 ? (int)n : -1;
@@ -265,8 +283,20 @@ int dns_fallback_resolve_ipv4(const char *host, char *ip_out, size_t ip_out_len)
             return -1;
     }
 
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    query_id = (uint16_t)((ts.tv_nsec ^ (long)getpid()) & 0xFFFF);
+    /* Unpredictable transaction id from the kernel CSPRNG; the clock^pid
+     * mix is only the fallback if /dev/urandom is somehow unreadable. */
+    {
+        int rfd = open("/dev/urandom", O_RDONLY);
+        ssize_t got = -1;
+        if (rfd >= 0) {
+            got = read(rfd, &query_id, sizeof(query_id));
+            close(rfd);
+        }
+        if (got != (ssize_t)sizeof(query_id)) {
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            query_id = (uint16_t)((ts.tv_nsec ^ (long)getpid()) & 0xFFFF);
+        }
+    }
     if (query_id == 0)
         query_id = 0x5150;   /* "PQ" — never send id 0 */
 
@@ -278,14 +308,14 @@ int dns_fallback_resolve_ipv4(const char *host, char *ip_out, size_t ip_out_len)
         int resp_len = dns_exchange_udp(k_dns_servers[s], query,
                                         (size_t)query_len, resp, sizeof(resp));
         int parsed = resp_len > 0
-            ? dns_parse_response(resp, (size_t)resp_len, query_id, &addr)
+            ? dns_parse_response(resp, (size_t)resp_len, query, (size_t)query_len, &addr)
             : -1;
 
         if (parsed == -2) {   /* truncated — same query over TCP */
             resp_len = dns_exchange_tcp(k_dns_servers[s], query,
                                         (size_t)query_len, resp, sizeof(resp));
             parsed = resp_len > 0
-                ? dns_parse_response(resp, (size_t)resp_len, query_id, &addr)
+                ? dns_parse_response(resp, (size_t)resp_len, query, (size_t)query_len, &addr)
                 : -1;
         }
 
