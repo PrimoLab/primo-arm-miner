@@ -415,10 +415,21 @@ static bool stratum_reconnect(struct stratum_ctx *sctx, json_t *params)
     size_t url_len;
     bool ret = false;
 
-    if (json_is_string(port_val))
-        port = atoi(json_string_value(port_val));
-    else
-        port = (int)json_integer_value(port_val);
+    /* Strict port parsing: atoi accepted trailing garbage ("3333junk") and
+     * a plain (int) narrowing could wrap a huge JSON integer INTO the valid
+     * range — a malformed redirect must be rejected, not reinterpreted. */
+    if (json_is_string(port_val)) {
+        const char *port_str = json_string_value(port_val);
+        char *end = NULL;
+        long parsed = port_str ? strtol(port_str, &end, 10) : 0;
+        port = (port_str && end && *end == '\0' && end != port_str &&
+                parsed > 0 && parsed <= 65535) ? (int)parsed : 0;
+    } else if (json_is_integer(port_val)) {
+        json_int_t parsed = json_integer_value(port_val);
+        port = (parsed > 0 && parsed <= 65535) ? (int)parsed : 0;
+    } else {
+        port = 0;
+    }
     if (!host || !host[0] || port <= 0 || port > 65535) {
         applog(LOG_ERR, "client.reconnect: missing or invalid host/port");
         goto out;

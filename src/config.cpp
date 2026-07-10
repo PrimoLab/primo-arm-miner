@@ -243,8 +243,15 @@ static void set_pool_default_user_span(const char *value, size_t value_len)
     }
 
     copy_len = value_len;
-    if (copy_len >= sizeof(pool_defaults.user))
+    if (copy_len >= sizeof(pool_defaults.user)) {
         copy_len = sizeof(pool_defaults.user) - 1;
+        /* Same loud-truncation policy as copy_pool_string (value not
+         * logged; the -O form can carry a password). */
+        applog(LOG_WARNING,
+               "config: pool user/wallet longer than %zu characters was "
+               "TRUNCATED — check your configuration",
+               sizeof(pool_defaults.user) - 1);
+    }
 
     memcpy(pool_defaults.user, value, copy_len);
     pool_defaults.user[copy_len] = '\0';
