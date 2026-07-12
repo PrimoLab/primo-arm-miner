@@ -577,9 +577,9 @@ static void stratum_close_transport_locked(struct stratum_ctx *sctx)
 }
 
 /* Extract "host" and numeric port from a stratum URL for the DNS-fallback
- * retry. Bracketed IPv6 literals return false (nothing to resolve; the
- * fallback is A-record/IPv4 only). Missing port falls back to the scheme
- * default so the CURLOPT_RESOLVE entry matches what curl will look up. */
+ * retry. Bracketed IPv6 literals return false (an address literal needs no
+ * resolving). Missing port falls back to the scheme default so the
+ * CURLOPT_RESOLVE entry matches what curl will look up. */
 static bool stratum_extract_host_port(const struct stratum_ctx *sctx,
                                       char *host_out, size_t host_out_len,
                                       int *port_out)
@@ -632,26 +632,35 @@ static CURLcode stratum_retry_with_dns_fallback(struct stratum_ctx *sctx,
                                                 CURL *curl, CURLcode rc)
 {
     char host[256];
-    char ip[INET_ADDRSTRLEN];
-    char entry[300];
+    char ips[DNS_FALLBACK_MAX_IPS][DNS_FALLBACK_ADDRSTRLEN];
+    /* "host:port:" + comma-joined address list */
+    char entry[sizeof(host) + 8 +
+               DNS_FALLBACK_MAX_IPS * (DNS_FALLBACK_ADDRSTRLEN + 1)];
     struct curl_slist *resolve;
-    int port = 0;
+    int port = 0, n, i;
+    size_t off;
 
     if (rc != CURLE_COULDNT_RESOLVE_HOST)
         return rc;
     if (!stratum_extract_host_port(sctx, host, sizeof(host), &port))
         return rc;
-    if (dns_fallback_resolve_ipv4(host, ip, sizeof(ip)) != 0)
+    n = dns_fallback_resolve(host, ips, DNS_FALLBACK_MAX_IPS);
+    if (n <= 0)
         return rc;
 
-    snprintf(entry, sizeof(entry), "%s:%d:%s", host, port, ip);
+    /* One CURLOPT_RESOLVE entry with EVERY address (comma list, curl ≥7.59):
+     * libcurl walks the candidates itself, so a dead first A record — pools
+     * run round-robin DNS — no longer strands the whole fallback. */
+    off = (size_t)snprintf(entry, sizeof(entry), "%s:%d:%s", host, port, ips[0]);
+    for (i = 1; i < n && off < sizeof(entry); i++)
+        off += (size_t)snprintf(entry + off, sizeof(entry) - off, ",%s", ips[i]);
     resolve = curl_slist_append(NULL, entry);
     if (!resolve)
         return rc;
 
     applog(LOG_WARNING,
-           "DNS: platform resolver failed for %s — fallback resolver got %s, retrying",
-           host, ip);
+           "DNS: platform resolver failed for %s — fallback resolver got %d address(es) (first %s), retrying",
+           host, n, ips[0]);
     if (sctx->resolve_list)
         curl_slist_free_all(sctx->resolve_list);
     sctx->resolve_list = resolve;
