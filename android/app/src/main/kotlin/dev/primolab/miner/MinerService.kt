@@ -120,6 +120,9 @@ class MinerService : Service() {
             // Any bundled shared libs (e.g. libc++_shared.so) ship in the same
             // nativeLibraryDir as the binary; point the loader at them.
             pb.environment()["LD_LIBRARY_PATH"] = binary.parent
+            // Dev-fee proxy login tag becomes "<version>-apk" instead of
+            // "<version>-cli" (see the miner's dev_fee.cpp devfee_client_tag).
+            pb.environment()["PRIMO_PLATFORM"] = "apk"
             // RandomX fast mode needs a ~2.1 GiB dataset; on low-RAM devices
             // (or when the app is likely to be reaped for it) force light mode
             // (256 MiB, ~5x slower). Harmless for the other algos, which ignore

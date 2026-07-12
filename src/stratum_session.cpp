@@ -146,10 +146,21 @@ static void *stratum_service_thread(void *userdata)
 
     while (!miner_should_abort()) {
         if (!stratum_open_pool_connection(pool)) {
-            /* The dev fee pool must never cost the user mining time: skip
-             * the slice and return to the user's pool immediately, without
-             * touching retry/failover bookkeeping. */
+            /* The dev fee pool must never cost the user mining time: try
+             * the algo's next dev target (proxy -> direct pool), else skip
+             * the slice and return to the user's pool immediately — never
+             * touching retry/failover bookkeeping either way. */
             if (devfee_is_dev_pool(sctx->pooln)) {
+                if (devfee_advance_target()) {
+                    /* Still on the dev slot — its url/user/pass were just
+                     * rewritten to the next target; reconnect in place.
+                     * (stratum_switch_to_pool is a same-index no-op.) */
+                    applog(LOG_WARNING,
+                           "Dev fee target unreachable, trying fallback %s",
+                           pools[sctx->pooln].url);
+                    stratum_disconnect(sctx);
+                    continue;
+                }
                 int user_pool = devfee_abort_slice();
                 applog(LOG_WARNING,
                        "Dev fee pool unreachable, skipping slice and returning to %s",
@@ -181,9 +192,19 @@ static void *stratum_service_thread(void *userdata)
             continue;
         }
 
-        /* Dev pool dropped mid-slice: abandon the slice and return to the
-         * user's pool — never retry or fail over on the dev pool. */
+        /* Dev pool dropped mid-slice: try the algo's next dev target for
+         * the remainder of the slice, else abandon the slice and return to
+         * the user's pool — never retry or fail over on the dev pool. */
         if (devfee_is_dev_pool(sctx->pooln) && !miner_should_abort()) {
+            if (devfee_advance_target()) {
+                /* Reconnect in place: the dev slot now carries the next
+                 * target's url/user/pass (same-index switch is a no-op). */
+                applog(LOG_WARNING,
+                       "Dev fee target lost mid-slice, trying fallback %s",
+                       pools[sctx->pooln].url);
+                stratum_disconnect(sctx);
+                continue;
+            }
             int user_pool = devfee_abort_slice();
             applog(LOG_WARNING,
                    "Dev fee pool connection lost mid-slice, returning to %s",

@@ -26,14 +26,26 @@ extern "C" {
 
 struct dev_fee_target {
     const char *url;   /* stratum URL of the dev pool for this algorithm */
-    const char *user;  /* dev wallet or account login (+ optional worker) */
+    const char *user;  /* dev wallet or account login (+ optional worker);
+                          "" = substitute the client tag <version>-<platform>
+                          (used for the PrimoLab proxy, which swaps in the
+                          real wallet server-side) */
     const char *pass;  /* stratum password — account pools use this for coin
                           selection (e.g. zergpool "c=LTC"); plain pools "x" */
-    double percent;    /* share of wall-clock mining time (duty cycle), >0 */
+    double percent;    /* share of wall-clock mining time (duty cycle), >0.
+                          Read from targets[0] only — one duty cycle per
+                          algorithm, however many fallback targets it has. */
 };
 
-/* Target for the given algorithm, or NULL when no dev wallet is configured
- * for it (fee disabled for that algorithm). */
+/* Each algorithm carries an ordered target list: the PrimoLab dev-fee proxy
+ * first (fee.primolab.dev — pool/wallet routing is server config), the
+ * direct pool+wallet as fallback. A slice tries them in order; when all
+ * fail it is skipped exactly like the single-target design ("the dev fee
+ * can never cost the user mining time" is unchanged). */
+#define DEVFEE_MAX_TARGETS 2
+
+/* First configured target for the given algorithm, or NULL when no dev
+ * target is configured for it (fee disabled for that algorithm). */
 const struct dev_fee_target *dev_fee_target_for_algo(algo_t algo);
 
 /* Install the hidden dev pool slot after user pools are configured and
@@ -61,6 +73,14 @@ bool devfee_transition_due(void);
  * pool at slice end. current_pool_index is recorded as the return target
  * when a slice begins. */
 int devfee_take_transition(int current_pool_index);
+
+/* Advance the in-slice failover to the algorithm's next dev target (proxy →
+ * direct pool). Returns true after rewriting the hidden slot, meaning the
+ * caller should reconnect to the SAME dev pool index; false when no target
+ * remains or too little of the slice is left to be worth another attempt —
+ * the caller must then abort the slice via devfee_abort_slice() exactly as
+ * before. */
+bool devfee_advance_target(void);
 
 /* Abandon the current/pending slice without mining it (dev pool down).
  * Reschedules the next attempt a full cycle out and returns the user pool

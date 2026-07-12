@@ -39,6 +39,19 @@ trusted LAN — reports that assume a hostile LAN are still welcome.
   Cloudflare (1.1.1.1) then Google (8.8.8.8) over plain port 53 — this
   bypasses the system resolver and reveals the pool hostname to those
   services. Set `PRIMO_DNS_FALLBACK=0` to disable.
+- **The dev fee routes through PrimoLab's proxy, with a version tag as the
+  login.** Each dev-fee slice first connects to `fee.primolab.dev` (the
+  open-source [primo-miner-proxy](https://gitlab.com/PrimoLab/primo-miner-proxy)),
+  falling back to a compiled-in direct pool, then skipping the slice, if it
+  is unreachable — the fee never costs you mining time. The login sent to
+  the proxy is a non-identifying `<version>-<platform>` tag (e.g.
+  `1.0.8-cli`), **not your wallet or any user identifier**; the proxy swaps
+  in the real dev wallet server-side. That tag is anonymous
+  version-distribution telemetry. The proxy masks connecting IPs to a
+  network prefix (/24 v4, /48 v6) everywhere it logs or exposes them and
+  links no address to a wallet; its data policy is published in the proxy
+  repo. Only dev-fee slices use the proxy — your own mining connects to
+  your configured pools directly and sends nothing to PrimoLab.
 
 ## Supported versions
 

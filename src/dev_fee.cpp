@@ -13,38 +13,63 @@
 #include <unistd.h>
 
 #include "dev_fee.h"
+#include "stratum_internal.h"  /* stratum_set_url — keep sctx->url in step
+                                * with the retargeted dev slot */
 
-/* Dev fee targets per algorithm. An empty URL disables the fee for that
- * algorithm. The wallets/accounts below are the developer's; if you fork
- * this miner, change them or set the URLs empty.
+/* Dev fee targets per algorithm, in failover order: the PrimoLab proxy
+ * first (fee.primolab.dev — wallet/pool routing is SERVER config, the
+ * binary carries no wallet for it; login = a non-identifying
+ * <version>-<platform> tag, disclosed in README/SECURITY.md), then the
+ * direct pool+wallet the fee used before the proxy existed. A slice tries
+ * them in order and is skipped when all fail — the proxy can only ever add
+ * a fallback attempt, never cost the user time. An empty URL in [0]
+ * disables the fee for that algorithm; percent is read from [0]. The
+ * wallets/accounts below are the developer's; if you fork this miner,
+ * change them or set the URLs empty.
  *
  * Scrypt mines to a litecoinpool.org account worker (account login, not
  * wallet) — LTC payout address is configured pool-side. */
 /* Verus carries 2% (this miner is ~10%+ faster than the ccminer ARM builds,
  * and field testers called 1-2% reasonable for a release); the other
  * algorithms stay at 1%. */
-static const struct dev_fee_target k_dev_fee_targets[ALGO_COUNT] = {
-    /* ALGO_VERUS   */ { "stratum+tcp://pool.verus.io:9998",
-                         "RDArJkrPSKPhX8zwUJHLu2SJWrL4GwCgKz.devfee", "x", 2.0 },
-    /* ALGO_SHA256D */ { "stratum+tcp://parasite.wtf:42069",
-                         "15nR6PuUkjTyjv9dnkYd2GbjbgiMxs4dLi.devfee", "x", 1.0 },
-    /* ALGO_SCRYPT  */ { "stratum+tcp://us.litecoinpool.org:3333",
-                         /* ",d=16" asks for a CPU-scale share difficulty —
-                          * litecoinpool's adaptive vardiff starts at ASIC
-                          * levels and can't converge within a 60s slice. */
-                         "PrimoDev.1", "x,d=16", 1.0 },
-    /* ALGO_RANDOMX */ { "stratum+tcp://gulf.moneroocean.stream:10001",
-                         /* MoneroOcean port 10001 starts at share diff 10000
-                          * (~14 s/share at phone rates) so a 60 s slice lands
-                          * shares — supportxmr was tried first and clamped the
-                          * dev login to diff 75000 (+5000 suffix ignored),
-                          * which starves a 60 s slice; same failure class as
-                          * litecoinpool's diff floor above. "+5000" kept in
-                          * the login: harmless where unsupported, honored
-                          * where it is. Pass = worker label (XMR dialect).
-                          * 1% (xmrig donate norm). */
-                         "42oukEEbeW8ippUDnUrexGS53QZ5gi28ELofq8KPgEoya1yghHACvNwbr9fJHGQWJUPz16cyJeFXcEexLuy7pBcdBzrzxvZ+5000",
-                         "devfee", 1.0 },
+static const struct dev_fee_target k_dev_fee_targets[ALGO_COUNT][DEVFEE_MAX_TARGETS] = {
+    /* ALGO_VERUS   */ {
+        { "stratum+tcp://fee.primolab.dev:9101", "", "x", 2.0 },
+        { "stratum+tcp://pool.verus.io:9998",
+          "RDArJkrPSKPhX8zwUJHLu2SJWrL4GwCgKz.devfee", "x", 2.0 },
+    },
+    /* ALGO_SHA256D */ {
+        { "stratum+tcp://fee.primolab.dev:9102", "", "x", 1.0 },
+        { "stratum+tcp://parasite.wtf:42069",
+          "15nR6PuUkjTyjv9dnkYd2GbjbgiMxs4dLi.devfee", "x", 1.0 },
+    },
+    /* ALGO_SCRYPT  */ {
+        /* The proxy is WHY the scrypt fee works at all: litecoinpool's
+         * diff-256 floor means ~11 min/share at phone rates vs the 60 s
+         * slice, but the proxy's persistent aggregated upstream session
+         * lands shares continuously. */
+        { "stratum+tcp://fee.primolab.dev:9103", "", "x", 1.0 },
+        { "stratum+tcp://us.litecoinpool.org:3333",
+          /* ",d=16" asks for a CPU-scale share difficulty —
+           * litecoinpool's adaptive vardiff starts at ASIC
+           * levels and can't converge within a 60s slice. */
+          "PrimoDev.1", "x,d=16", 1.0 },
+    },
+    /* ALGO_RANDOMX */ {
+        { "stratum+tcp://fee.primolab.dev:9104", "", "devfee", 1.0 },
+        { "stratum+tcp://gulf.moneroocean.stream:10001",
+          /* MoneroOcean port 10001 starts at share diff 10000
+           * (~14 s/share at phone rates) so a 60 s slice lands
+           * shares — supportxmr was tried first and clamped the
+           * dev login to diff 75000 (+5000 suffix ignored),
+           * which starves a 60 s slice; same failure class as
+           * litecoinpool's diff floor above. "+5000" kept in
+           * the login: harmless where unsupported, honored
+           * where it is. Pass = worker label (XMR dialect).
+           * 1% (xmrig donate norm). */
+          "42oukEEbeW8ippUDnUrexGS53QZ5gi28ELofq8KPgEoya1yghHACvNwbr9fJHGQWJUPz16cyJeFXcEexLuy7pBcdBzrzxvZ+5000",
+          "devfee", 1.0 },
+    },
 };
 
 /* The slice is always 60s; the per-algo percent sets the cycle length
@@ -62,21 +87,79 @@ struct devfee_state {
     int slice_seconds;
     int cycle_seconds;
     double percent;          /* active algo's duty cycle, for logging */
+    int cur_target;          /* index into the algo's target list (0 = proxy) */
+    int num_targets;         /* valid entries for the active algo */
 };
 
-static struct devfee_state g_devfee = { false, false, -1, -1, 0, 0, 0, 0.0 };
+static struct devfee_state g_devfee = { false, false, -1, -1, 0, 0, 0, 0.0, 0, 0 };
+
+/* True when the list entry is usable. user == "" is the client-tag sentinel
+ * (valid); only a missing/empty URL disables an entry. */
+static bool devfee_target_valid(const struct dev_fee_target *target)
+{
+    return target->url && target->url[0] && target->user &&
+           target->percent > 0.0;
+}
+
+static int devfee_count_targets(algo_t algo)
+{
+    int n = 0;
+    while (n < DEVFEE_MAX_TARGETS &&
+           devfee_target_valid(&k_dev_fee_targets[algo][n]))
+        n++;
+    return n;
+}
 
 const struct dev_fee_target *dev_fee_target_for_algo(algo_t algo)
 {
     if (algo < 0 || algo >= ALGO_COUNT)
         return NULL;
 
-    const struct dev_fee_target *target = &k_dev_fee_targets[algo];
-    if (!target->url || !target->url[0] || !target->user || !target->user[0] ||
-        target->percent <= 0.0)
+    const struct dev_fee_target *target = &k_dev_fee_targets[algo][0];
+    if (!devfee_target_valid(target))
         return NULL;
 
     return target;
+}
+
+/* The proxy login: a non-identifying <version>-<platform> tag (e.g.
+ * "1.0.8-cli"). The proxy substitutes the real wallet server-side; the tag
+ * doubles as version-distribution telemetry, disclosed in SECURITY.md.
+ * Platform comes from PRIMO_PLATFORM (MinerService sets "apk"); anything
+ * else is a CLI run. */
+static void devfee_client_tag(char *buf, size_t len)
+{
+    const char *platform = getenv("PRIMO_PLATFORM");
+    if (!platform || strcmp(platform, "apk") != 0)
+        platform = "cli";
+    snprintf(buf, len, "%s-%s", PACKAGE_VERSION, platform);
+}
+
+/* Write target t's url/user/pass into the hidden dev pool slot. Only called
+ * from the service thread while the slot is disconnected (install time, a
+ * slice start, or an in-slice failover), so rewriting in place is safe —
+ * the next stratum_open_pool_connection reads the fields fresh. */
+static void devfee_set_pool_target(int t)
+{
+    const struct dev_fee_target *target = &k_dev_fee_targets[opt_algo][t];
+    struct pool_infos *pool = &pools[g_devfee.dev_pool_index];
+    char tag[64];
+
+    snprintf(pool->url, sizeof(pool->url), "%s", target->url);
+    if (target->user[0]) {
+        snprintf(pool->user, sizeof(pool->user), "%s", target->user);
+    } else {
+        devfee_client_tag(tag, sizeof(tag));
+        snprintf(pool->user, sizeof(pool->user), "%s", tag);
+    }
+    snprintf(pool->pass, sizeof(pool->pass), "%s",
+             target->pass && target->pass[0] ? target->pass : "x");
+    /* stratum_open_pool_connection caches sctx->url and only reads pool->url
+     * when it is empty, so a retarget of pool->url alone would reconnect to
+     * the stale target. Force sctx->url to track pool->url here (safe: same
+     * service thread, slot disconnected). */
+    stratum_set_url(&pool->stratum, pool->url);
+    g_devfee.cur_target = t;
 }
 
 int devfee_install_pool(void)
@@ -99,10 +182,9 @@ int devfee_install_pool(void)
     pool_index = num_pools;
     memset(&pools[pool_index], 0, sizeof(pools[pool_index]));
     snprintf(pools[pool_index].name, sizeof(pools[pool_index].name), "dev fee");
-    snprintf(pools[pool_index].url, sizeof(pools[pool_index].url), "%s", target->url);
-    snprintf(pools[pool_index].user, sizeof(pools[pool_index].user), "%s", target->user);
-    snprintf(pools[pool_index].pass, sizeof(pools[pool_index].pass), "%s",
-             target->pass && target->pass[0] ? target->pass : "x");
+    g_devfee.dev_pool_index = pool_index;
+    g_devfee.num_targets = devfee_count_targets(opt_algo);
+    devfee_set_pool_target(0);
     pools[pool_index].configured = true;
     /* disabled keeps the slot out of failover rotation and out of the
      * "first usable pool" startup selection; the dev fee scheduler switches
@@ -110,7 +192,6 @@ int devfee_install_pool(void)
     pools[pool_index].disabled = true;
     num_pools = pool_index + 1;
 
-    g_devfee.dev_pool_index = pool_index;
     g_devfee.percent = target->percent;
     g_devfee.slice_seconds = k_slice_seconds_default;
     g_devfee.cycle_seconds =
@@ -193,6 +274,10 @@ int devfee_take_transition(int current_pool_index)
         g_devfee.in_slice = true;
         g_devfee.user_pool_index = current_pool_index;
         g_devfee.next_transition = now + g_devfee.slice_seconds;
+        /* Every slice starts at the head of the target list (the proxy);
+         * a previous slice's in-slice failover never sticks. */
+        if (g_devfee.cur_target != 0)
+            devfee_set_pool_target(0);
         applog(LOG_NOTICE, "Dev fee: mining %ds slice (%.1f%% of runtime)",
                g_devfee.slice_seconds, g_devfee.percent);
         return g_devfee.dev_pool_index;
@@ -203,6 +288,25 @@ int devfee_take_transition(int current_pool_index)
     applog(LOG_NOTICE, "Dev fee: slice complete, returning to %s",
            pools[g_devfee.user_pool_index].url);
     return g_devfee.user_pool_index;
+}
+
+bool devfee_advance_target(void)
+{
+    if (!g_devfee.enabled || !g_devfee.in_slice)
+        return false;
+    if (g_devfee.cur_target + 1 >= g_devfee.num_targets)
+        return false;
+
+    /* Don't bother reconnecting into the tail of the slice: a fresh
+     * connect+authorize eats several seconds before any work lands. The
+     * floor scales with the slice so PRIMO_DEVFEE_TEST's 20s cadence keeps
+     * the same behavior shape. */
+    time_t now = time(NULL);
+    if (g_devfee.next_transition - now < g_devfee.slice_seconds / 4)
+        return false;
+
+    devfee_set_pool_target(g_devfee.cur_target + 1);
+    return true;
 }
 
 int devfee_abort_slice(void)

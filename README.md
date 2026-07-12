@@ -333,13 +333,31 @@ algorithm:
 
 The first slice lands at a random point within the first cycle (re-drawn
 every start, so the fee can't be skipped with scheduled restarts); very
-short sessions usually pay nothing. If the dev pool is ever unreachable,
+short sessions usually pay nothing. If a dev target is ever unreachable,
 the slice is skipped immediately — your mining time is never held up by it.
 One caveat for RandomX on a non-Monero rx/0 chain (e.g. Zephyr): the dev
 pool mines Monero, so each fee slice re-keys the shared dataset on entry
 and again on return (~14 s each in fast mode) — a real-world overhead the
 1% figure doesn't capture on those chains. Mining Monero itself has no
 such cost (same seed, no re-key).
+
+**Routing and privacy.** Each fee slice first connects to PrimoLab's
+aggregating stratum proxy at `fee.primolab.dev` (source:
+[primo-miner-proxy](https://gitlab.com/PrimoLab/primo-miner-proxy)), which
+lets the pool/wallet/coin be changed server-side without a new miner
+release and lets many miners' short slices share one persistent pool
+session (this is what makes the scrypt fee viable at all). If the proxy is
+unreachable the slice falls back to a direct pool+wallet compiled into the
+binary, and if that also fails the slice is skipped — the fee can only ever
+*add* a fallback attempt, never cost you mining time. The proxy login is a
+non-identifying `<version>-<platform>` tag (e.g. `1.0.8-cli`, `1.0.8-apk`) —
+**never your wallet or a user identifier**; the proxy substitutes the real
+dev wallet on its side. That tag gives us anonymous version-distribution
+telemetry; the proxy masks connecting IPs to a network prefix in its logs
+and stats, and links no address to any wallet. Set `PRIMO_DNS_FALLBACK=0`
+to disable the miner's public-resolver DNS fallback if you prefer; the fee
+still works via your platform resolver.
+
 Implemented in `src/dev_fee.cpp`; the fee and the donations below are the
 project's only funding, and forks are of course free to change it (GPL).
 
