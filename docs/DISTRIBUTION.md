@@ -42,7 +42,15 @@ A changed digest would force users to uninstall/reinstall; verify with
   Per release: push `master` + the tag, upload the three artifacts +
   `SHA256SUMS` to `packages/generic/primo-arm-miner/<ver>/`, create the
   release with those asset links, and verify one asset hash anonymously.
-- **GitHub**: dormant until the org flag clears; same mirror procedure then.
+- **GitHub (live since 2026-07-13, org flag cleared after 33 days)**:
+  <https://github.com/PrimoLab/primo-arm-miner> — same procedure as GitLab.
+  v1.0.7 mirrored: master + tag pushed, release created with asset *copies*
+  (uploaded via `gh release create`, verified hash-identical to `/dl/`);
+  the broken v1.0.5 release + remote tag were deleted (glibc-2.38 build).
+  `releases/latest` is the evergreen link the site buttons use.
+  **Actions is disabled repo-wide** (API setting, not a commit) so pushes
+  can't trigger miner builds on shared runners — the CI burst that caused
+  the original flag. Re-enable deliberately or never; `/dl/` is canonical.
 
 Artifact SHA-256s must be byte-identical between `/dl/` and every mirror —
 a divergence means a stale or tampered mirror and is a release-blocker.
@@ -89,7 +97,8 @@ libcurl.so.4, libjansson.so.4, libm, libstdc++, libc — all decade-stable.
 ## GitHub Actions workflow (dormant mirror path)
 
 `.github/workflows/release.yml` still exists and can build both tarballs on
-GitHub's free arm64 runners, but it is **not** the canonical release path —
+GitHub's free arm64 runners, but **Actions is disabled repo-wide on GitHub**
+(see Forge mirrors above) and it is **not** the canonical release path —
 the containerized on-box pipeline above is. If it is ever revived, its three
 historical CI fixes still apply: `chmod -R a+w` the checkout before the
 termux container (uid mismatch), build + smoke-test in ONE container session,
