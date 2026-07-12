@@ -11,6 +11,8 @@
     <string name="status_idle">Idle — not mining</string>
     <string name="disclaimer_title">Before you mine</string>
     <string name="disclaimer_text" formatted="false">This app is a cryptocurrency CPU miner. Mining runs your processor at full load for as long as it is active: the device will get hot, draw a lot of power, drain the battery quickly, and sustained mining may accelerate battery and hardware wear.\n\nDev fee: to support development, the miner periodically mines to the developer\'s wallet for a small slice of time — 2% for Verus and 1% for the other algorithms. Everything else goes to the pool and wallet you configure.\n\nYou run this app entirely at your own risk. The developers accept no responsibility for any consequences — including hardware damage, battery wear, electricity costs, lost earnings, or your compliance with local laws and pool terms. No warranty of any kind.\n\nPrimo ARM Miner is free software under GPL-3.0-or-later. Source code: gitlab.com/PrimoLab/primo-arm-miner — license texts for the bundled components ship inside this APK (assets/licenses).</string>
+    <string name="share_log">Share log</string>
+    <string name="jump_latest">↓ LATEST</string>
     <string name="help_close">Close</string>
     <string name="help_learn_more">Learn more</string>
     <string name="help_miner_title">Miner settings</string>

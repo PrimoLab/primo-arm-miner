@@ -1,20 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/logScroll"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
-    android:padding="12dp"
-    android:scrollbars="vertical">
+    android:background="@color/bg">
 
-    <TextView
-        android:id="@+id/logText"
+    <ScrollView
+        android:id="@+id/logScroll"
         android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="12dp"
+        android:scrollbars="vertical">
+
+        <TextView
+            android:id="@+id/logText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textColor="@color/text"
+            android:textSize="11sp"
+            android:lineSpacingExtra="2dp"
+            android:textIsSelectable="true"
+            android:text="" />
+    </ScrollView>
+
+    <!-- Shown while scrolled up so new lines don't silently pile below. -->
+    <TextView
+        android:id="@+id/jumpLatest"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:fontFamily="monospace"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="18dp"
+        android:background="@drawable/pill_bg"
+        android:backgroundTint="@color/chip_idle"
+        android:clickable="true"
+        android:focusable="true"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp"
+        android:text="@string/jump_latest"
         android:textColor="@color/text"
-        android:textSize="11sp"
-        android:lineSpacingExtra="2dp"
-        android:textIsSelectable="true"
-        android:text="" />
-</ScrollView>
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.04"
+        android:visibility="gone" />
+</FrameLayout>

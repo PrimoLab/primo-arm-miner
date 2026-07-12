@@ -233,6 +233,15 @@ Takes effect the next time mining starts.
       (mine-verus / mine-monero / …), MINER to the FAQ, MONITORING to the docs.
       The dashboard's overflow menu gains **About** (app version + a
       primolab.dev button). All site URLs live in one place (`Links.kt`).
+- [x] **Log page upgraded** (2026-07-12): lines are re-colored with the app
+      palette using the site-terminal convention — dim timestamps, green
+      reserved for the word "Accepted", red for Rejected/errors, amber for
+      failover/reconnect/timeout events (keyword-based: the subprocess writes
+      to a pipe, so the native logger emits no ANSI — the strip regex stays as
+      defense). Action-bar **share** button sends the log tail + app version +
+      device model (the tester "send me your log" flow, two taps). A
+      "↓ LATEST" pill appears when scrolled up so returning to the tail is one
+      tap; auto-follow still pauses while reading scrollback.
 - [ ] POST_NOTIFICATIONS runtime request (Android 13+) so the notification shows
 - [ ] targetSdk 34 needs a real `foregroundServiceType` justification (currently
       `dataSync` at targetSdk 33)
