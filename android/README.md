@@ -242,9 +242,18 @@ Takes effect the next time mining starts.
       device model (the tester "send me your log" flow, two taps). A
       "↓ LATEST" pill appears when scrolled up so returning to the tail is one
       tap; auto-follow still pauses while reading scrollback.
-- [ ] POST_NOTIFICATIONS runtime request (Android 13+) so the notification shows
+- [x] **POST_NOTIFICATIONS runtime request** (2026-07-12): Start now prompts on
+      Android 13+ when not granted (manifest entry alone never prompts — the
+      "Mining…" notification was silently invisible). The request happens
+      BEFORE the service launch (it posts the notification once, at
+      startForeground, so a later grant wouldn't show it) and mining starts
+      from the callback whether granted or not — the notification is
+      status-only, never a gate.
 - [ ] targetSdk 34 needs a real `foregroundServiceType` justification (currently
-      `dataSync` at targetSdk 33)
+      `dataSync` at targetSdk 33). DEFERRED until a bump is forced: sideloaded
+      APKs have no Play deadline and Android 15/16 install targetSdk 33 fine;
+      at 34 `dataSync` gets a 6-hour cap, so the plan is `specialUse` + the
+      PROPERTY_SPECIAL_USE_FGS_SUBTYPE justification.
 - [x] **First-launch disclaimer dialog** (`MiningActivity.showDisclaimer`): states
       it's a cryptocurrency CPU miner (heat/power/battery/wear), discloses the
       **dev fee** (2% verus / 1% sha256d+scrypt+randomx, time-sliced — see
@@ -253,10 +262,10 @@ Takes effect the next time mining starts.
       again"** (checked by default) persists as `disclaimerOk` in `profiles.json`
       (same mechanism as `lanApi`). Note: `disclaimer_text` needs
       `formatted="false"` — the `%` fee figures trip aapt2's format-arg check.
-- [ ] Test on a NON-rooted device (Note 20 Ultra; debug-signed APK ready) —
-      install by tap, start via the UI button (the root `pm install`/`am` path was
-      just the test harness). Expect background throttling ("N of M CPUs" + uclamp);
-      full speed only while on-screen.
+- [x] Test on a NON-rooted device — DONE in the field: Note 20 Ultra working,
+      plus non-rooted testers (AGTERM, CupofX) run it with exactly the expected
+      background throttling ("N of M CPUs" + uclamp); full speed while
+      on-screen, as designed.
 - [x] Per-thread / temp view (poll `threads` + `hwinfo` API commands)
 - [x] **Thread chips wrap to centered rows** for >8-thread phones (10/12-core),
       with status as a colored pill (mining/connecting) and threshold-colored temp.

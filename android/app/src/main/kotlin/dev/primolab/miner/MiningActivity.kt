@@ -32,6 +32,7 @@ import kotlin.concurrent.thread
 class MiningActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
+    private val REQ_NOTIF = 1
     private var mining = false
     private var maxKhs = 0.0
     private var startTapTime = 0L
@@ -193,6 +194,31 @@ class MiningActivity : Activity() {
             setStatus("NO CONFIG — TAP THE COG", WARN)
             return
         }
+        // Android 13+ (targetSdk 33): the manifest POST_NOTIFICATIONS entry
+        // alone doesn't prompt — without the runtime grant the foreground
+        // "Mining…" notification is silently invisible. Ask BEFORE the service
+        // starts (it posts the notification once, at startForeground, so a
+        // grant arriving later wouldn't show it), then launch either way from
+        // the callback — the notification is status-only, never a gate. After
+        // a hard "don't ask again" denial the callback fires immediately.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIF)
+            return
+        }
+        launchMinerService()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_NOTIF) launchMinerService()   // granted or not
+    }
+
+    private fun launchMinerService() {
         requestIgnoreBatteryOptimizations()
         val intent = Intent(this, MinerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
