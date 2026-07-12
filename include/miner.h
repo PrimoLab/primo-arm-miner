@@ -26,7 +26,7 @@ extern "C" {
 
 // Version
 #define PACKAGE_NAME "primo-arm-miner"
-#define PACKAGE_VERSION "1.0.7"
+#define PACKAGE_VERSION "1.0.8"
 #define USER_AGENT PACKAGE_NAME "/" PACKAGE_VERSION
 
 // Limits
