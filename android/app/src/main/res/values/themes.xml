@@ -8,6 +8,18 @@
         <item name="android:colorAccent">@color/accent</item>
         <item name="android:textColorPrimary">@color/text</item>
         <item name="android:textColorSecondary">@color/textdim</item>
+        <item name="android:alertDialogTheme">@style/PrimoDialog</item>
+    </style>
+
+    <!-- The ⓘ help popups. Stock AlertDialog otherwise inherits the device's
+         default (light on OneUI/Samsung) dialog theme and clashes with the
+         dark app; this pins it to the app palette. Framework-only, no lib. -->
+    <style name="PrimoDialog" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/dialog_bg</item>
+        <item name="android:colorBackground">@color/card</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:textColorSecondary">@color/textdim</item>
+        <item name="android:colorAccent">@color/accent</item>
     </style>
 
     <style name="StatValue">
@@ -27,7 +39,7 @@
     <!-- Config form -->
     <style name="SectionHeader">
         <item name="android:textColor">@color/accent</item>
-        <item name="android:textSize">12sp</item>
+        <item name="android:textSize">14sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:letterSpacing">0.08</item>
         <item name="android:layout_marginTop">28dp</item>
