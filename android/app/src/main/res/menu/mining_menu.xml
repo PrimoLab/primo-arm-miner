@@ -10,4 +10,8 @@
         android:title="@string/config_title"
         android:icon="@drawable/ic_cog"
         android:showAsAction="always" />
+    <item
+        android:id="@+id/action_about"
+        android:title="@string/about_title"
+        android:showAsAction="never" />
 </menu>

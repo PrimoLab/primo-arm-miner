@@ -14,10 +14,19 @@
         android:paddingBottom="28dp">
 
         <!-- ============ MINER ============ -->
-        <TextView android:id="@+id/sectionMiner" style="@style/SectionHeader"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="MINER" />
+            android:gravity="center_vertical">
+            <TextView android:id="@+id/sectionMiner" style="@style/SectionHeader"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="0dp"
+                android:text="MINER" />
+            <ImageView android:id="@+id/infoMiner" style="@style/SectionInfo"
+                android:contentDescription="Help: miner settings" />
+        </LinearLayout>
 
         <TextView style="@style/FieldLabel"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -43,9 +52,19 @@
             android:textSize="12sp" />
 
         <!-- ============ POOLS ============ -->
-        <TextView android:id="@+id/sectionPools" style="@style/SectionHeader"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="POOLS" />
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:gravity="center_vertical">
+            <TextView android:id="@+id/sectionPools" style="@style/SectionHeader"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="0dp"
+                android:text="POOLS" />
+            <ImageView android:id="@+id/infoPools" style="@style/SectionInfo"
+                android:contentDescription="Help: pool settings" />
+        </LinearLayout>
         <TextView
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
@@ -75,9 +94,19 @@
             android:letterSpacing="0.04" />
 
         <!-- ============ MONITORING ============ -->
-        <TextView android:id="@+id/sectionMonitoring" style="@style/SectionHeader"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="MONITORING" />
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:gravity="center_vertical">
+            <TextView android:id="@+id/sectionMonitoring" style="@style/SectionHeader"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="0dp"
+                android:text="MONITORING" />
+            <ImageView android:id="@+id/infoMonitoring" style="@style/SectionInfo"
+                android:contentDescription="Help: monitoring settings" />
+        </LinearLayout>
 
         <CheckBox android:id="@+id/lanApiCheck"
             android:layout_width="match_parent" android:layout_height="wrap_content"

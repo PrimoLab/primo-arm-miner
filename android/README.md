@@ -226,6 +226,13 @@ Takes effect the next time mining starts.
       Apache-2.0 ship in the APK under `assets/licenses/`; the first-launch
       disclaimer states the license and source URL (GPL binary-distribution
       compliance).
+- [x] **In-app help + site linkbacks** (2026-07-12): every config section header
+      (MINER / POOLS / MONITORING) carries a ⓘ button that opens a popup
+      explaining that section's inputs, with a LEARN MORE button to the matching
+      primolab.dev page — POOLS links to the page for the coin being configured
+      (mine-verus / mine-monero / …), MINER to the FAQ, MONITORING to the docs.
+      The dashboard's overflow menu gains **About** (app version + a
+      primolab.dev button). All site URLs live in one place (`Links.kt`).
 - [ ] POST_NOTIFICATIONS runtime request (Android 13+) so the notification shows
 - [ ] targetSdk 34 needs a real `foregroundServiceType` justification (currently
       `dataSync` at targetSdk 33)

@@ -11,6 +11,17 @@
     <string name="status_idle">Idle — not mining</string>
     <string name="disclaimer_title">Before you mine</string>
     <string name="disclaimer_text" formatted="false">This app is a cryptocurrency CPU miner. Mining runs your processor at full load for as long as it is active: the device will get hot, draw a lot of power, drain the battery quickly, and sustained mining may accelerate battery and hardware wear.\n\nDev fee: to support development, the miner periodically mines to the developer\'s wallet for a small slice of time — 2% for Verus and 1% for the other algorithms. Everything else goes to the pool and wallet you configure.\n\nYou run this app entirely at your own risk. The developers accept no responsibility for any consequences — including hardware damage, battery wear, electricity costs, lost earnings, or your compliance with local laws and pool terms. No warranty of any kind.\n\nPrimo ARM Miner is free software under GPL-3.0-or-later. Source code: gitlab.com/PrimoLab/primo-arm-miner — license texts for the bundled components ship inside this APK (assets/licenses).</string>
+    <string name="help_close">Close</string>
+    <string name="help_learn_more">Learn more</string>
+    <string name="help_miner_title">Miner settings</string>
+    <string name="help_miner" formatted="false">ALGORITHM — decides which coin you mine: verus → Verus (VRSC), randomx → Monero (XMR), scrypt → Litecoin + Dogecoin (merged mining), sha256d → Bitcoin (BTC). Each algorithm remembers its own pools and thread count, so switching back later restores them.\n\nTHREADS — how many CPU cores mine at once. All cores gives the highest hashrate but the most heat; if the device gets very hot or throttles, try one or two fewer than the core count.</string>
+    <string name="help_pools_title">Pool settings</string>
+    <string name="help_pools" formatted="false">POOL URL — copy it from your pool\'s getting-started page, e.g. stratum+tcp://host:port. Use stratum+ssl:// to connect over TLS where the pool offers it.\n\nWALLET / USER.WORKER — usually your wallet address, optionally followed by a dot and a worker name to tell your devices apart (wallet.phone1). A few pools use an account username instead of a wallet address.\n\nPASSWORD — almost always just x. Some pools read options from it, like a fixed difficulty.\n\nFAILOVER POOLS — tried in order when the pool above them is unreachable. A blank wallet or password on a failover means \"same as the primary\".</string>
+    <string name="help_monitoring_title">Monitoring</string>
+    <string name="help_monitoring" formatted="false">The miner serves a read-only, ccminer-compatible status API on port 4068 — it\'s what the dashboard on the home page reads.\n\nAllow network monitoring — also lets other devices on your wifi read it (hashrate, shares, temperature) by connecting to this phone\'s IP on port 4068. It is read-only: nothing on the phone can be changed through it. Off = reachable from this phone only.</string>
+    <string name="about_title">About</string>
+    <string name="about_text">Primo ARM Miner %s\n\nA lightweight CPU miner for ARM devices: Verus, Monero, Litecoin + Dogecoin, and Bitcoin.\n\nGuides, FAQ and downloads: primolab.dev\nSource code (GPL-3.0-or-later): gitlab.com/PrimoLab/primo-arm-miner</string>
+    <string name="about_website">primolab.dev</string>
     <string name="disclaimer_dont_show">Don\'t show this again</string>
     <string name="disclaimer_accept">I understand</string>
     <string name="disclaimer_exit">Exit</string>

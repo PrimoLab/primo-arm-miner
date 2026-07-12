@@ -158,8 +158,26 @@ class MiningActivity : Activity() {
             R.id.action_logs -> {
                 startActivity(Intent(this, LogActivity::class.java)); return true
             }
+            R.id.action_about -> { showAbout(); return true }
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    /** Overflow → About: version + a linkback to the site (guides, FAQ, updates). */
+    private fun showAbout() {
+        // The non-deprecated PackageInfoFlags overload needs API 33; minSdk is 24.
+        @Suppress("DEPRECATION")
+        val version = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+        } catch (e: Exception) { "?" }
+        android.app.AlertDialog.Builder(this)
+            .setTitle(getString(R.string.app_name))
+            .setMessage(getString(R.string.about_text, version))
+            .setPositiveButton(getString(R.string.help_close), null)
+            .setNeutralButton(getString(R.string.about_website)) { _, _ ->
+                Links.open(this, Links.SITE)
+            }
+            .show()
     }
 
     override fun onResume() {

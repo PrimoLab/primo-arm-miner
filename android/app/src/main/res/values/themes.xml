@@ -33,6 +33,20 @@
         <item name="android:layout_marginTop">28dp</item>
     </style>
 
+    <!-- The little ⓘ next to a section header; padding makes the touch target
+         comfortable while the glyph itself stays 18dp. -->
+    <style name="SectionInfo">
+        <item name="android:src">@drawable/ic_info</item>
+        <item name="android:layout_width">36dp</item>
+        <item name="android:layout_height">36dp</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:padding">9dp</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:background">?android:attr/selectableItemBackgroundBorderless</item>
+    </style>
+
     <style name="FieldLabel">
         <item name="android:textColor">@color/textdim</item>
         <item name="android:textSize">12sp</item>

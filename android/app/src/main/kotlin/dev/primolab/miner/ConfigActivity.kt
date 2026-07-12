@@ -98,6 +98,29 @@ class ConfigActivity : Activity() {
             }
         }
         findViewById<Button>(R.id.saveButton).setOnClickListener { save() }
+
+        findViewById<View>(R.id.infoMiner).setOnClickListener {
+            showHelp(R.string.help_miner_title, R.string.help_miner, Links.FAQ)
+        }
+        findViewById<View>(R.id.infoPools).setOnClickListener {
+            // Link to the page for the coin being configured (pool + wallet setup).
+            showHelp(R.string.help_pools_title, R.string.help_pools, Links.coinPage(currentAlgo))
+        }
+        findViewById<View>(R.id.infoMonitoring).setOnClickListener {
+            showHelp(R.string.help_monitoring_title, R.string.help_monitoring, Links.DOCS)
+        }
+    }
+
+    /** Section ⓘ popup: what each input means, with a linkback to the site. */
+    private fun showHelp(titleRes: Int, bodyRes: Int, url: String) {
+        android.app.AlertDialog.Builder(this)
+            .setTitle(getString(titleRes))
+            .setMessage(getString(bodyRes))
+            .setPositiveButton(getString(R.string.help_close), null)
+            .setNeutralButton(getString(R.string.help_learn_more)) { _, _ ->
+                Links.open(this, url)
+            }
+            .show()
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
