@@ -54,9 +54,10 @@ sudo apk add curl jansson
 > **DNS fallback:** if the system resolver can't resolve a pool hostname
 > (some public resolvers block mining pools; Android app sandboxes block
 > DNS for native subprocesses), the miner retries with a built-in resolver
-> that queries Cloudflare (1.1.1.1) / Google (8.8.8.8) directly. It only
-> runs after the system resolver fails; set `PRIMO_DNS_FALLBACK=0` to
-> disable it.
+> that queries Cloudflare (1.1.1.1) / Google (8.8.8.8) directly. It tries
+> every address the pool's DNS publishes (IPv6 only when there is no
+> IPv4), only runs after the system resolver fails, and the whole attempt
+> is capped at ~10 seconds; set `PRIMO_DNS_FALLBACK=0` to disable it.
 
 ## Features
 
