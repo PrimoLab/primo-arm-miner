@@ -115,6 +115,30 @@ Overrides, same as on Linux:
   correct for Apple Silicon — both P- and E-cores are out-of-order, unlike
   RK3588's in-order Cortex-A55 "LITTLE" cores).
 
+## Experimental: EOR3 (FEAT_SHA3) CLHash variant — needs Apple Silicon A/B
+
+Apple Silicon (A13/M1 and later) has FEAT_SHA3, which none of the project's
+own test devices do — so this branch carries a third, runtime-gated CLHash
+build (`clhash_native_sha3.c`): the hand-asm source recompiled with `+sha3`
+so clang fuses the accumulator XOR chains into `EOR3` (~119 sites in the hot
+kernels). Detection uses `hw.optional.arm.FEAT_SHA3` on macOS; when active
+the miner logs `Verus: FEAT_SHA3 detected — using EOR3 CLHash variant`.
+Honest expectation from instruction counts: **+1-3%, low single digits is
+the ceiling.**
+
+What an A/B needs (same protocol as the fused-dispatch table above):
+
+```bash
+VERUS_SHA3=0 ./primo-arm-miner --algo=verus --benchmark --threads=8   # baseline
+VERUS_SHA3=1 ./primo-arm-miner --algo=verus --benchmark --threads=8   # EOR3
+VERUS_X2_SELFTEST=1 ./primo-arm-miner --algo=verus --benchmark --threads=8  # correctness
+```
+
+(`VERUS_SHA3=1` is only honored when the hardware reports FEAT_SHA3 —
+running the EOR3 code without it would SIGILL, so unlike `VERUS_ASM` the
+env cannot force it on. The selftest cross-checks the EOR3 path against the
+portable reference automatically when it's the active variant.)
+
 ## Known limitations
 
 - **No CPU pinning / topology tuning.** Affinity calls are no-ops (see

@@ -94,6 +94,7 @@ set(SOURCES
     src/algorithm/verus.cpp
     src/algorithm/clhash_native.c
     src/algorithm/clhash_native_noasm.c
+    src/algorithm/clhash_native_sha3.c
     src/algorithm/haraka_native.c
     src/algorithm/cpu_features.c
     src/algorithm/sha256_neon.c
@@ -146,6 +147,12 @@ set_source_files_properties(
     src/algorithm/clhash_native_noasm.c
     src/algorithm/haraka_native.c
     PROPERTIES COMPILE_OPTIONS "-fno-unroll-loops"
+)
+# EOR3 variant: +sha3 codegen on the armv8-a base (trailing -march overrides
+# the global one; runtime-gated — see clhash_native_sha3.c).
+set_source_files_properties(
+    src/algorithm/clhash_native_sha3.c
+    PROPERTIES COMPILE_OPTIONS "-fno-unroll-loops;-march=armv8-a+crypto+sha3"
 )
 
 # Link libraries

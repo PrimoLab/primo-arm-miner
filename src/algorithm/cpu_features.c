@@ -40,6 +40,13 @@ cpu_capabilities_t detect_cpu_features(void) {
     // Both AES and PMULL required for full crypto support
     caps.has_armv8_crypto = caps.has_aes && caps.has_pmull && caps.has_asimd;
 
+    // FEAT_SHA3 (EOR3): process-wide — the kernel reports the intersection
+    // across all cores, so if the bit is set EVERY core has it (guard for
+    // pre-4.11 sysroots that lack the constant).
+#ifdef HWCAP_SHA3
+    caps.has_sha3 = !!(hwcap & HWCAP_SHA3);
+#endif
+
 #elif defined(__APPLE__)
     // macOS has no getauxval/HWCAP; query the equivalent sysctl feature
     // flags instead (present on every Apple Silicon Mac — all ship with
@@ -50,6 +57,9 @@ cpu_capabilities_t detect_cpu_features(void) {
     caps.has_asimd = apple_sysctl_bool("hw.optional.neon");
 
     caps.has_armv8_crypto = caps.has_aes && caps.has_pmull && caps.has_asimd;
+
+    // Apple Silicon has FEAT_SHA3 since A13/M1, but query it like the rest.
+    caps.has_sha3 = apple_sysctl_bool("hw.optional.arm.FEAT_SHA3");
 
 #else
     // For other non-Linux systems, assume no crypto support for safety

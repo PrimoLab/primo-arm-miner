@@ -14,6 +14,8 @@ typedef struct {
     bool has_pmull;         // ARMv8 polynomial multiplication support
     bool has_asimd;         // Advanced SIMD (NEON) support
     bool has_armv8_crypto;  // Both AES and PMULL available
+    bool has_sha3;          // FEAT_SHA3 (EOR3 etc.) — optional even on Armv9
+                            // cores; gates the _sha3 CLHash variant (verus.cpp)
 } cpu_capabilities_t;
 
 // Detect CPU features at runtime
