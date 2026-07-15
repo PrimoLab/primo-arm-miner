@@ -40,7 +40,7 @@ static const struct dev_fee_target k_dev_fee_targets[ALGO_COUNT][DEVFEE_MAX_TARG
     },
     /* ALGO_SHA256D */ {
         { "stratum+tcp://fee.primolab.dev:9102", "", "x", 1.0 },
-        { "stratum+tcp://parasite.wtf:42069",
+        { "stratum+tcp://public-pool.io:3333",
           "15nR6PuUkjTyjv9dnkYd2GbjbgiMxs4dLi.devfee", "x", 1.0 },
     },
     /* ALGO_SCRYPT  */ {
