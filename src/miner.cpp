@@ -567,13 +567,23 @@ static void miner_get_thread_nonce_range(int thread_id, uint64_t *range_start_ou
     const uint64_t total_nonce_space = UINT64_C(1) << 32;
     const uint64_t thread_index = (uint64_t)thread_id;
     const uint64_t thread_count = (uint64_t)opt_n_threads;
+    uint64_t range_start = (thread_index * total_nonce_space) / thread_count;
+    uint64_t range_end = ((thread_index + 1) * total_nonce_space) / thread_count;
 
-    if (range_start_out) {
-        *range_start_out = (thread_index * total_nonce_space) / thread_count;
+    /* Test-only hook: PRIMO_NONCE_SPAN_TEST=<n> shrinks each thread's
+     * partition to n nonces so exhaustion (and the Verus epoch roll) can be
+     * exercised in seconds instead of minutes. Never set in production. */
+    const char *span_env = getenv("PRIMO_NONCE_SPAN_TEST");
+    if (span_env) {
+        uint64_t span = strtoull(span_env, NULL, 10);
+        if (span > 0 && range_start + span < range_end)
+            range_end = range_start + span;
     }
-    if (range_end_out) {
-        *range_end_out = ((thread_index + 1) * total_nonce_space) / thread_count;
-    }
+
+    if (range_start_out)
+        *range_start_out = range_start;
+    if (range_end_out)
+        *range_end_out = range_end;
 }
 
 static void recalculate_global_hashrate_locked(void)
@@ -1180,6 +1190,32 @@ static bool work_is_new_job(const struct work *current_work,
     return is_first_work || strcmp(current_work->job_id, previous_job_id) != 0;
 }
 
+// Verus nonce-space widening: the 32-bit search counter (seeded from header
+// word 30, rolled in the solution tail by scanhash_verus) exhausts in minutes
+// at modern rates (e.g. ~12 min on an M1 at 5.9 MH/s), and on pools that
+// don't refresh the job preimage between blocks the threads then stall until
+// the next block. The header's 32-byte nonce field (words 27-34) belongs to
+// the miner past extranonce1 — so on exhaustion we bump an "epoch" in word 32
+// and rescan the partition: a new epoch changes the hashed preimage, making
+// the whole 2^32 counter space fresh. Word 32 specifically because it is
+// hashed on BOTH job flavors: classic jobs hash the full header (word 32 is
+// in the Haraka midstate), and v7+ merged-mining jobs — today's VRSC mainnet,
+// where consensus CLEARS the header nonce field — carry it via the hashed
+// nonce_space bytes [7..10] (scanhash_verus mirrors the daemon's
+// canonicalization and copies pdata word 32 there; the win path mirrors it
+// back into the submitted header, see try_record_share).
+// Epochs are monotonic within a job (reset only on a new block), so every
+// (preimage, epoch, counter) triple is unique — duplicate-share-safe by
+// construction, including across coinbase/ntime refreshes.
+static bool verus_nonce_epoch_can_roll(const struct work *work, uint32_t current_epoch)
+{
+    if (opt_algo != ALGO_VERUS)
+        return false;
+    if (current_epoch == UINT32_MAX)  // unreachable in practice; never wrap
+        return false;
+    return miner_work_solution_const(work) != NULL;
+}
+
 // Share-difficulty helper used by the hashing back ends.
 extern "C" void bn_store_share_difficulty(uint32_t* hash, uint32_t* target, struct work* work, int nonce)
 {
@@ -1307,6 +1343,10 @@ void *miner_thread(void *userdata)
 
     // Track nonce position separately (not relying on work structure which gets overwritten)
     uint64_t next_nonce_index = 0;
+    // Verus nonce-space epoch (header word 32): bumped when the partition
+    // exhausts under an unchanged preimage, giving the thread a fresh 2^32
+    // counter space instead of stalling. See verus_nonce_epoch_can_roll().
+    uint32_t verus_nonce_epoch = 0;
     bool first_work = true;
     bool have_previous_verus_header = false;
     char previous_job_id[128] = "";
@@ -1373,6 +1413,7 @@ void *miner_thread(void *userdata)
             // Partition the full 2^32 nonce space exactly using 64-bit arithmetic.
             // Each thread owns [start, end) with no gaps and no overlap.
             next_nonce_index = thread_nonce_start;
+            verus_nonce_epoch = 0;
             if (opt_algo == ALGO_VERUS) {
                 memcpy(previous_verus_header, &work.data[0], sizeof(previous_verus_header));
                 have_previous_verus_header = true;
@@ -1411,15 +1452,31 @@ void *miner_thread(void *userdata)
             memcpy(last_scanned_header, work.data, preimage_words * 4);
 
         if (next_nonce_index >= thread_nonce_end) {
-            wait_for_work_restart_after_nonce_exhaustion(thread_id, work.restart_generation,
-                                                         work_update_snapshot,
-                                                         &rate_window_start, &rate_window_hashes,
-                                                         &rate_window_scan_sec);
-            continue;
+            // Verus: don't stall — bump the word-32 epoch and rescan the
+            // partition as fresh space (see verus_nonce_epoch_can_roll()).
+            // Other algos wait for new work.
+            if (verus_nonce_epoch_can_roll(&work, verus_nonce_epoch)) {
+                verus_nonce_epoch++;
+                next_nonce_index = thread_nonce_start;
+                if (opt_debug)
+                    applog(LOG_DEBUG, "Thread %d: nonce partition exhausted, rolling epoch to %u",
+                           thread_id, verus_nonce_epoch);
+            } else {
+                wait_for_work_restart_after_nonce_exhaustion(thread_id, work.restart_generation,
+                                                             work_update_snapshot,
+                                                             &rate_window_start, &rate_window_hashes,
+                                                             &rate_window_scan_sec);
+                continue;
+            }
         }
 
         // Set the nonce position for this scan
         *nonce_word = (uint32_t)next_nonce_index;
+        if (opt_algo == ALGO_VERUS) {
+            // Stamp the epoch every chunk: stratum_copy_work above rewrote
+            // the local header from the published work (word 32 = 0 there).
+            work.data[32] = verus_nonce_epoch;
+        }
         work.thread_id = (uint8_t)thread_id;
 
         // Adaptive chunk size targeting ~5 seconds per chunk.
@@ -1488,7 +1545,8 @@ void *miner_thread(void *userdata)
         next_nonce_index += (uint64_t)hashes_done;
 
         if (opt_debug && nonces_found > 0)
-            applog(LOG_DEBUG, "Thread %d: found %d nonces", thread_id, nonces_found);
+            applog(LOG_DEBUG, "Thread %d: found %d nonces (nonce epoch %u)",
+                   thread_id, nonces_found, verus_nonce_epoch);
 
         // Submit found nonces immediately.
         for (int i = 0; i < nonces_found && i < MAX_NONCES; i++) {
@@ -1497,8 +1555,11 @@ void *miner_thread(void *userdata)
         }
 
         // If nonce range exhausted, wait for new work instead of
-        // scanning into other threads' ranges (causes duplicate shares)
-        if (nonces_found == 0 && next_nonce_index >= thread_nonce_end) {
+        // scanning into other threads' ranges (causes duplicate shares).
+        // Verus epoch-rollable work falls through instead: the loop top
+        // rolls the epoch with no idle time, so the rate window stays valid.
+        if (nonces_found == 0 && next_nonce_index >= thread_nonce_end &&
+            !verus_nonce_epoch_can_roll(&work, verus_nonce_epoch)) {
             wait_for_work_restart_after_nonce_exhaustion(thread_id, work.restart_generation,
                                                          work_update_snapshot,
                                                          &rate_window_start, &rate_window_hashes,

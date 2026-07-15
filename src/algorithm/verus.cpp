@@ -466,6 +466,16 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 		if (work->valid_nonces < MAX_NONCES) {
 			work->valid_nonces++;
 			memcpy(work->data, serialized_job, kHeaderBytes);
+			if (version >= 7 && work_solution[5] > 0) {
+				/* Merged-mining jobs hash a CLEARED header (the memcpy
+				 * above copied those zeros back into work->data), with the
+				 * live nonce bytes riding in nonce_space instead. Mirror
+				 * nonce_space[7..10] (pdata word 32 — the exhaustion epoch,
+				 * see miner.cpp) back into the submitted header word so the
+				 * pool-side reconstruction of nonce_space from the header
+				 * reproduces exactly what was hashed. */
+				memcpy(&work->data[kNonceWordIndex + 2], nspace + 7, 4);
+			}
 			int nonce = work->valid_nonces - 1;
 			memcpy(work_extra, solution_bytes, kStoredSolutionBytes);
 			memcpy(work_extra + kSolutionNonceOffset, nspace, kNonceBytes);
