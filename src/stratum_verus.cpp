@@ -83,6 +83,15 @@ static bool verus_validate_nonce_layout(const struct stratum_ctx *sctx)
                sctx->xnonce1_size + sctx->xnonce2_size);
         return false;
     }
+    /* Header words 30 (scan-chunk seed) and 32 (exhaustion epoch) are
+     * miner-rolled; an extranonce1 reaching past word 29 (12 bytes into the
+     * field) would be silently corrupted by the roll. Every known Verus pool
+     * sends 4 bytes — reject the layout loudly rather than mine garbage. */
+    if (sctx->xnonce1_size > 12) {
+        applog(LOG_ERR, "Verus extranonce1 (%zu bytes) reaches the miner-rolled nonce words",
+               sctx->xnonce1_size);
+        return false;
+    }
     return true;
 }
 
