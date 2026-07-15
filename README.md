@@ -351,7 +351,7 @@ session (this is what makes the scrypt fee viable at all). If the proxy is
 unreachable the slice falls back to a direct pool+wallet compiled into the
 binary, and if that also fails the slice is skipped — the fee can only ever
 *add* a fallback attempt, never cost you mining time. The proxy login is a
-non-identifying `<version>-<platform>` tag (e.g. `1.0.8-cli`, `1.0.8-apk`) —
+non-identifying `<version>-<platform>` tag (e.g. `1.0.9-cli`, `1.0.9-apk`) —
 **never your wallet or a user identifier**; the proxy substitutes the real
 dev wallet on its side. That tag gives us anonymous version-distribution
 telemetry; the proxy masks connecting IPs to a network prefix in its logs
