@@ -410,7 +410,10 @@ bool stratum_set_extranonce(struct stratum_ctx *sctx, const char *xnonce1, int x
         return false;
 
     xnonce1_size = strlen(xnonce1) / 2;
-    buf = (unsigned char *)calloc(1, xnonce1_size);
+    /* calloc(1, 0) may legally return NULL; keep the buffer non-NULL so the
+     * size-0 case (empty extranonce1 — Braiins) survives the alloc check
+     * and downstream memcpy(_, buf, 0) stays defined. */
+    buf = (unsigned char *)calloc(1, xnonce1_size ? xnonce1_size : 1);
     if (!buf) {
         applog(LOG_ERR, "Failed to alloc xnonce1");
         return false;

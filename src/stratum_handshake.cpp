@@ -214,7 +214,10 @@ bool stratum_parse_extranonce(struct stratum_ctx *sctx, json_t *params, int pndx
         applog(LOG_ERR, "Invalid extranonce1 hex length");
         goto out;
     }
-    if (xn1_size < 1 || xn1_size > 32) {
+    /* Size 0 is legal: Braiins Pool subscribes with extranonce1 = "" (the
+     * coinbase simply carries no pool-assigned prefix; extranonce2 is the
+     * only per-connection nonce material). */
+    if (xn1_size > 32) {
         applog(LOG_ERR, "Unsupported extranonce1 size of %d", xn1_size);
         goto out;
     }
@@ -267,7 +270,8 @@ bool stratum_parse_extranonce(struct stratum_ctx *sctx, json_t *params, int pndx
     } else if (xn2_size < 2 || xn2_size > 16) {
         applog(LOG_ERR, "Failed to get valid n2size in parse_extranonce (%d)", xn2_size);
         goto out;
-    } else if (xn1_size < 3 || xn1_size > 12) {
+    } else if (xn1_size > 12) {
+        /* Lower bound removed: empty extranonce1 is valid (Braiins). */
         applog(LOG_ERR, "Unsupported extranonce size of %d (12 maxi)", xn1_size);
         goto out;
     }
