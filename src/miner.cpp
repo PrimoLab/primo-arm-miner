@@ -645,6 +645,10 @@ static bool miner_snapshot_hashrate_report(time_t now, struct miner_hashrate_rep
     }
 
     report_out->thread_count = thread_count;
+    // Recompute rather than trusting the cache: it is only refreshed from
+    // the scan loop, so with every thread in the exhaustion wait the total
+    // froze at the last scanning rate while the per-thread column read 0.
+    recalculate_global_hashrate_locked();
     report_out->total_hashrate = global_hashrate;
     last_stats_time = now;
     pthread_mutex_unlock(&stats_lock);
@@ -1108,6 +1112,8 @@ void miner_get_api_snapshot(struct miner_api_snapshot *snapshot)
     pthread_mutex_lock(&stats_lock);
     snapshot->runtime_active = (start_time != 0);
     snapshot->start_time = start_time;
+    if (thr_info)
+        recalculate_global_hashrate_locked();  // same staleness as the report path
     snapshot->global_hashrate = global_hashrate;
 
     if (thr_info) {
@@ -1298,6 +1304,12 @@ static void wait_for_work_restart_after_nonce_exhaustion(int thread_id,
 {
     if (opt_debug)
         applog(LOG_DEBUG, "Thread %d: nonce range exhausted, waiting for new work", thread_id);
+
+    // Publish 0 H/s while idle: the stored rate is only refreshed from the
+    // scan loop, so without this the display and API freeze at the last
+    // scanning rate for the whole wait — a stalled miner looked fully
+    // productive, which masked the nonce-exhaustion stall in the field.
+    miner_thread_hashrate_store(&thr_info[thread_id], 0.0);
 
     while (!miner_work_restart_requested(restart_generation) && !miner_should_abort()) {
         // Non-clean same-height/same-target job updates are published WITHOUT

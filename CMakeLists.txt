@@ -13,7 +13,7 @@ if(NOT DEFINED CMAKE_CXX_COMPILER)
 endif()
 
 cmake_minimum_required(VERSION 3.10)
-project(primo-arm-miner VERSION 1.0.8 LANGUAGES C CXX ASM)
+project(primo-arm-miner VERSION 1.0.9 LANGUAGES C CXX ASM)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 14)
