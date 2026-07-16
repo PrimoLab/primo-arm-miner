@@ -142,7 +142,12 @@ make clean && make -j"$(nproc)"
 ```
 
 **Requirements:**
-- ARM CPU with crypto extensions (ARMv8+)
+- 64-bit ARM CPU (aarch64) with crypto extensions (ARMv8+)
+- 32-bit ARM (ARMv7) is not supported and won't be: the hot paths are
+  hand-written AArch64 assembly, and ARMv7 lacks the PMULL/AES/SHA2
+  instructions these algorithms are built on. 32-bit-only phones are also
+  simply too old to earn anything mining — that hardware is below even the
+  "old phone" bar this project aims for.
 - `make` build defaults to `clang-16` / `clang++-16` with `lld`
 - Alternate compatible Clang driver names can be selected with `CC=...`, `CXX=...`, and `PRIMO_LINKER=...`
 - libcurl, libjansson
