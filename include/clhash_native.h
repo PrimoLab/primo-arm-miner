@@ -151,11 +151,6 @@ static inline uint64_t precompReduction64_native(uint64x2_t A) {
 
 CLHASH_DECLARE_VARIANT(_asm)
 CLHASH_DECLARE_VARIANT(_noasm)
-// _sha3 = the _asm source recompiled -march=armv8-a+crypto+sha3 (clang emits
-// EOR3 on the accumulator XOR chains). Only callable on FEAT_SHA3 silicon —
-// verus.cpp gates it via cpu features (verus_use_sha3()); calling it anywhere
-// else is SIGILL. See clhash_native_sha3.c.
-CLHASH_DECLARE_VARIANT(_sha3)
 
 // =============================================================================
 // PHASE 1 OPTIMIZATION: Code size reduction helpers

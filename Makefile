@@ -122,7 +122,6 @@ SOURCES_C = \
 	src/utils/dns_fallback.c \
 	src/algorithm/clhash_native.c \
 	src/algorithm/clhash_native_noasm.c \
-	src/algorithm/clhash_native_sha3.c \
 	src/algorithm/haraka_native.c \
 	src/algorithm/cpu_features.c \
 	src/algorithm/scrypt_neon.c \
@@ -210,14 +209,6 @@ src/algorithm/clhash_native.o: src/algorithm/clhash_native.c
 src/algorithm/clhash_native_noasm.o: src/algorithm/clhash_native_noasm.c src/algorithm/clhash_native.c
 	@echo "Compiling $< (no unroll-loops, no-asm variant)..."
 	$(CC) $(CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -fno-unroll-loops $(CLHASH_EXTRA_FLAGS) -c $< -o $@
-
-# EOR3 variant: the _asm source recompiled with +sha3 codegen (runtime-gated,
-# never executed on non-FEAT_SHA3 silicon). The trailing -march OVERRIDES the
-# CFLAGS one (last -march wins) and stays on the armv8-a base — only +sha3 is
-# added, so no Armv8.2/LSE instructions can leak into this TU.
-src/algorithm/clhash_native_sha3.o: src/algorithm/clhash_native_sha3.c src/algorithm/clhash_native.c
-	@echo "Compiling $< (no unroll-loops, sha3/EOR3 variant)..."
-	$(CC) $(CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -fno-unroll-loops $(CLHASH_EXTRA_FLAGS) -march=armv8-a+crypto+sha3 -c $< -o $@
 
 src/algorithm/haraka_native.o: src/algorithm/haraka_native.c
 	@echo "Compiling $< (no unroll-loops)..."

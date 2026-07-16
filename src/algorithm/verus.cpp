@@ -229,35 +229,6 @@ static bool verus_use_asm_for_current_cpu(void)
 	return true;
 }
 
-/* Select the EOR3 (_sha3) CLHash variant — the _asm source recompiled with
- * +sha3 so clang fuses the accumulator XOR chains into EOR3 (~119 sites in
- * the hot kernels; expect +1-3% where supported, see clhash_native_sha3.c).
- * Gate is deliberately NOT per-core: FEAT_SHA3 detection is process-wide on
- * both OSes (Linux HWCAP is the kernel-reported intersection across cores;
- * Apple Silicon is homogeneous for ISA features), so if it reports, every
- * core can run it — including Armv9 LITTLE (A510/A520), whose narrow
- * in-order front ends may benefit proportionally MORE per removed insn.
- * VERUS_SHA3=0 forces off; VERUS_SHA3=1 is honored ONLY on FEAT_SHA3
- * hardware — executing the _sha3 TU without the extension is guaranteed
- * SIGILL, so the env cannot force-enable it (unlike VERUS_ASM, where both
- * directions are safe). Logs once so tester A/Bs can confirm the path. */
-static bool verus_use_sha3(void)
-{
-	if (!g_cpu_caps.has_sha3)
-		return false;
-
-	const char *e = getenv("VERUS_SHA3");
-	if (e && e[0] == '0')
-		return false;
-
-	static bool logged = false;
-	if (!logged) {
-		logged = true;
-		applog(LOG_INFO, "Verus: FEAT_SHA3 detected — using EOR3 CLHash variant (VERUS_SHA3=0 disables)");
-	}
-	return true;
-}
-
 static void generate_cl_key(unsigned char *seed_bytes_32, verus_vec128_t *key_buffer)
 {
 	// Expand the 64-byte half-hash into the CLHash key schedule used by Verus.
@@ -507,18 +478,10 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	const bool use_fused = verus_use_fused_for_current_cpu();
 	const bool use_asm = verus_use_asm_for_current_cpu();
 
-	/* _sha3 rides ON TOP of the asm choice (it IS the asm source, +sha3
-	 * codegen) — a VERUS_ASM=0 fallback therefore also disables it. */
-	const bool use_sha3 = use_asm && verus_use_sha3();
-
-	/* Per-thread CLHash variant: hand-asm on big cores, portable C otherwise;
-	 * FEAT_SHA3 hardware upgrades the asm pick to the EOR3 build. The
-	 * selftest below always references the portable _noasm x1, so
-	 * VERUS_X2_SELFTEST=1 also validates _asm == _noasm (and, on FEAT_SHA3
-	 * silicon, _sha3 == _noasm) at runtime. */
-	const verus_clhash_x2_fn clhash_x2 = use_sha3
-		? (use_fused ? verusclhash_port2_2_x2f_native_sha3 : verusclhash_port2_2_x2_native_sha3)
-		: use_asm
+	/* Per-thread CLHash variant: hand-asm on big cores, portable C otherwise.
+	 * The selftest below always references the portable _noasm x1, so
+	 * VERUS_X2_SELFTEST=1 also validates _asm == _noasm at runtime. */
+	const verus_clhash_x2_fn clhash_x2 = use_asm
 		? (use_fused ? verusclhash_port2_2_x2f_native_asm : verusclhash_port2_2_x2_native_asm)
 		: (use_fused ? verusclhash_port2_2_x2f_native_noasm : verusclhash_port2_2_x2_native_noasm);
 
@@ -649,9 +612,7 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 					break;   /* == goto out: the label directly follows */
 			}
 		};
-		if (use_sha3)
-			run_x1_loop(verusclhash_port2_2_native_sha3);
-		else if (use_asm)
+		if (use_asm)
 			run_x1_loop(verusclhash_port2_2_native_asm);
 		else
 			run_x1_loop(verusclhash_port2_2_native_noasm);
