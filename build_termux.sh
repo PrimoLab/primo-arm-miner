@@ -86,7 +86,22 @@ if [ -n "${CLANG_PREFIX:-}" ]; then
     # clang-16's android driver asks for -lc++ — link it explicitly.
     # Harmless on older header sets. (Found in the termux-docker build env;
     # the phone hits the same wall after its next libc++ pkg upgrade.)
-    [ -f "$TERMUX_USR/lib/libc++_shared.so" ] && LINK_EXTRA="$LINK_EXTRA -lc++_shared"
+    #
+    # -nostdlib++ is load-bearing, NOT cosmetic: without it the driver's
+    # implicit -lc++ resolves against the ANDROID PLATFORM /system/lib64/libc++.so,
+    # which (a) puts a second, ABI-different C++ runtime (std::__1 vs Termux's
+    # std::__ndk1) in NEEDED, and (b) satisfies _Unwind_Resume from that DSO, so
+    # lld never pulls Termux's static libunwind.a. On devices whose platform
+    # libc++.so does not export the unwinder the binary then dies at exec with
+    #   CANNOT LINK EXECUTABLE: cannot locate symbol "_Unwind_Resume"
+    # (field report, CupofX, 2026-07-28 — affected every release since 1.0.7).
+    # Dropping the implicit -lc++ makes libunwind.a link in statically and
+    # leaves libc++_shared.so as the only C++ runtime. Verify after any change
+    # to this link line:
+    #   readelf -d primo-arm-miner | grep NEEDED        # must NOT list libc++.so
+    #   readelf --dyn-syms -W primo-arm-miner | grep _Unwind   # must be empty
+    [ -f "$TERMUX_USR/lib/libc++_shared.so" ] && \
+        LINK_EXTRA="$LINK_EXTRA -nostdlib++ -lc++_shared"
 
     # Single wrapper: clang-16 for both compile and link.
     # Keep -L/-Wl flags out of compile-only steps to avoid "unused arg" noise.
