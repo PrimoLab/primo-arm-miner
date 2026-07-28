@@ -322,6 +322,11 @@ Startup uses the same retry policy as steady-state reconnects. With `-r -1`, the
 - `-N, --statsavg` - Stats window
 
 **Misc:**
+- `--nicehash` - RandomX: the pool owns the nonce's top byte, so the miner
+  scans only the low 24 bits. Auto-enabled when the pool advertises the
+  `nicehash` extension at login (NiceHash, xmrig-proxy, and mining-proxy
+  setups generally) — pass it only if your pool assigns nonce slices without
+  advertising them. Harmless elsewhere, but it does shrink the scan space.
 - `--benchmark` - Offline synthetic benchmark mode for all supported algorithms
 - `-b, --api-bind` - API endpoint
 - `-V, --version` - Version

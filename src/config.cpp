@@ -24,7 +24,8 @@
 enum cli_option_id {
     CLI_OPT_BENCHMARK = 1005,
     CLI_OPT_CPU_AFFINITY = 1020,
-    CLI_OPT_CPU_PRIORITY = 1021
+    CLI_OPT_CPU_PRIORITY = 1021,
+    CLI_OPT_NICEHASH = 1022
 };
 
 // Global options (defined here, extern in miner.h)
@@ -32,6 +33,7 @@ bool opt_debug = false;
 bool opt_quiet = false;
 bool opt_benchmark = false;
 bool opt_protocol = false;
+bool opt_nicehash = false;
 int opt_n_threads = 0;
 int opt_timeout = 300;
 int opt_retries = -1;
@@ -158,6 +160,7 @@ static struct option g_cli_options[] = {
     { "cpu-priority", 1, NULL, CLI_OPT_CPU_PRIORITY },
     { "debug", 0, NULL, 'D' },
     { "help", 0, NULL, 'h' },
+    { "nicehash", 0, NULL, CLI_OPT_NICEHASH },
     { "pass", 1, NULL, 'p' },
     { "protocol-dump", 0, NULL, 'P' },
     { "quiet", 0, NULL, 'q' },
@@ -322,6 +325,8 @@ static void exit_with_usage(int status)
         printf("  -N, --statsavg=N      Stats averaging window (default: 30)\n");
         printf("  --cpu-affinity=MASK   CPU affinity mask (-1/all, decimal, or hex like 0xf0)\n");
         printf("  --cpu-priority=N      Process priority (0-5, default: 0)\n");
+        printf("  --nicehash            RandomX: pool owns the nonce MSB (auto when the pool\n");
+        printf("                        advertises it; force only if yours does not)\n");
         printf("  -V, --version         Show version\n");
         printf("  -h, --help            Show this help\n");
         printf("\nSupported algorithms:\n");
@@ -801,6 +806,9 @@ static void apply_option(int key, const char *arg)
         exit_with_usage(0);
     case CLI_OPT_BENCHMARK:
         opt_benchmark = true;
+        break;
+    case CLI_OPT_NICEHASH:
+        opt_nicehash = true;
         break;
     case CLI_OPT_CPU_AFFINITY:
         opt_affinity_mask = parse_affinity_mask_argument(arg);

@@ -560,10 +560,18 @@ static int select_affinity_cpu_for_thread(int thread_id, const cpu_set_t *allowe
     return -1;
 }
 
-static void miner_get_thread_nonce_range(int thread_id, uint64_t *range_start_out,
+/*
+ * Split the scannable nonce space evenly across threads. nonce_space is
+ * normally the whole 2^32, but RandomX in nicehash mode owns only the low
+ * 24 bits (the pool sets the rest per worker — see
+ * RANDOMX_NICEHASH_NONCE_MASK), so the partition has to shrink with it or
+ * threads would hand the scan loop indices outside their slice.
+ */
+static void miner_get_thread_nonce_range(int thread_id, uint64_t nonce_space,
+                                         uint64_t *range_start_out,
                                          uint64_t *range_end_out)
 {
-    const uint64_t total_nonce_space = UINT64_C(1) << 32;
+    const uint64_t total_nonce_space = nonce_space;
     const uint64_t thread_index = (uint64_t)thread_id;
     const uint64_t thread_count = (uint64_t)opt_n_threads;
     uint64_t range_start = (thread_index * total_nonce_space) / thread_count;
@@ -1339,6 +1347,10 @@ void *miner_thread(void *userdata)
     unsigned long hashes_done = 0;
     uint64_t thread_nonce_start = 0;
     uint64_t thread_nonce_end = 0;
+    /* Size of the space thread_nonce_start/end partition. Re-derived from
+     * every work unit: a RandomX pool switch (user pool <-> dev-fee proxy)
+     * can turn nicehash mode on or off mid-session. */
+    uint64_t nonce_space = UINT64_C(1) << 32;
 
     // High-resolution timing for accurate hashrate
     struct timespec rate_window_start, rate_sample_time;
@@ -1374,7 +1386,7 @@ void *miner_thread(void *userdata)
         return NULL;
     memset(previous_verus_header, 0, sizeof(previous_verus_header));
     memset(last_scanned_header, 0, sizeof(last_scanned_header));
-    miner_get_thread_nonce_range(thread_id, &thread_nonce_start, &thread_nonce_end);
+    miner_get_thread_nonce_range(thread_id, nonce_space, &thread_nonce_start, &thread_nonce_end);
     next_nonce_index = thread_nonce_start;
 
     miner_configure_current_thread(thread_ctx);
@@ -1403,6 +1415,30 @@ void *miner_thread(void *userdata)
             nonce_offset = RANDOMX_NONCE_WORD;
 #endif
         uint32_t *nonce_word = &work.data[nonce_offset];
+
+#ifdef PRIMO_RANDOMX
+        // Nicehash mode shrinks the scannable space to the low 24 bits (the
+        // pool owns the rest — see RANDOMX_NICEHASH_NONCE_MASK), and a pool
+        // switch (user pool <-> dev-fee proxy) can flip it either way
+        // mid-session. Re-derive the partition when it changes and restart
+        // at the new slice start: an index from the old space would fall
+        // outside this thread's slice.
+        if (opt_algo == ALGO_RANDOMX) {
+            uint64_t space = work.rx_nonce_mask ? (uint64_t)work.rx_nonce_mask + 1
+                                                : (UINT64_C(1) << 32);
+            if (space != nonce_space) {
+                nonce_space = space;
+                miner_get_thread_nonce_range(thread_id, nonce_space,
+                                             &thread_nonce_start, &thread_nonce_end);
+                next_nonce_index = thread_nonce_start;
+                if (opt_debug)
+                    applog(LOG_DEBUG, "Thread %d: nonce space now %llu, partition [%llu,%llu)",
+                           thread_id, (unsigned long long)nonce_space,
+                           (unsigned long long)thread_nonce_start,
+                           (unsigned long long)thread_nonce_end);
+            }
+        }
+#endif
 
         // Handle nonce progression:
         // Only reset scan_nonce when the block actually changes (new prevhash).

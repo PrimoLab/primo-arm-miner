@@ -164,6 +164,10 @@ static void build_xmr_work(const struct stratum_ctx *sctx, struct work *new_work
     memset(new_work->data, 0, sizeof(new_work->data));
     memcpy(new_work->data, sctx->job.rx_blob, sctx->job.rx_blob_len);
     new_work->rx_blob_len = sctx->job.rx_blob_len;
+    /* In nicehash mode the blob copied above already carries the pool's
+     * slice in the nonce MSB; the scan must keep it (0 = full 32-bit
+     * space). See RANDOMX_NICEHASH_NONCE_MASK. */
+    new_work->rx_nonce_mask = sctx->xmr_nicehash ? RANDOMX_NICEHASH_NONCE_MASK : 0u;
 
     /* Boundary on the hash's top 8 bytes; lower words saturated so the full
      * 256-bit LE compare in scanhash_randomx reduces to top64 <= target64. */

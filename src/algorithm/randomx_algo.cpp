@@ -430,8 +430,22 @@ extern "C" int scanhash_randomx(int thr_id, struct work *work,
         blob_len = RANDOMX_BLOB_MAX;
     memcpy(blob, work->data, blob_len);
 
-    uint32_t n = work->data[RANDOMX_NONCE_WORD];
-    uint32_t first = n;
+    /* work->data[RANDOMX_NONCE_WORD] is this thread's scan COUNTER, which is
+     * not necessarily the blob nonce: in nicehash mode the pool owns the
+     * bits outside rx_nonce_mask (it pre-set them in the job's blob to give
+     * this worker a private slice), so only the masked bits may vary. Take
+     * the fixed bits from the blob we are about to hash, never from the
+     * counter. See RANDOMX_NICEHASH_NONCE_MASK. */
+    const uint32_t nonce_mask = work->rx_nonce_mask ? work->rx_nonce_mask : 0xFFFFFFFFu;
+    uint32_t nonce_fixed = 0;
+    if (nonce_mask != 0xFFFFFFFFu) {
+        const uint8_t *jn = blob + RANDOMX_NONCE_OFFSET;
+        uint32_t job_nonce = (uint32_t)jn[0] | ((uint32_t)jn[1] << 8) |
+                             ((uint32_t)jn[2] << 16) | ((uint32_t)jn[3] << 24);
+        nonce_fixed = job_nonce & ~nonce_mask;
+    }
+    const uint32_t counter = work->data[RANDOMX_NONCE_WORD];
+    uint32_t done = 0;
     uint8_t hash[RANDOMX_HASH_SIZE];
 
     /* Register as an active dataset/cache user for the duration of the
@@ -442,15 +456,18 @@ extern "C" int scanhash_randomx(int thr_id, struct work *work,
 
     /* One RandomX hash is ~5-12 ms — checking restart/abort every iteration
      * is free relative to the hash and keeps job-switch latency low. */
-    while ((uint32_t)(n - first) < max_hashes &&
+    while (done < max_hashes &&
            !miner_work_restart_requested(work->restart_generation) &&
            !miner_should_abort()) {
-        blob[39] = (uint8_t)n;
-        blob[40] = (uint8_t)(n >> 8);
-        blob[41] = (uint8_t)(n >> 16);
-        blob[42] = (uint8_t)(n >> 24);
+        const uint32_t n = nonce_fixed | ((counter + done) & nonce_mask);
+
+        blob[RANDOMX_NONCE_OFFSET + 0] = (uint8_t)n;
+        blob[RANDOMX_NONCE_OFFSET + 1] = (uint8_t)(n >> 8);
+        blob[RANDOMX_NONCE_OFFSET + 2] = (uint8_t)(n >> 16);
+        blob[RANDOMX_NONCE_OFFSET + 3] = (uint8_t)(n >> 24);
 
         randomx_calculate_hash(vm, blob, blob_len, hash);
+        done++;
 
         if (rx_hash_le_target(hash, work->target) &&
             work->valid_nonces < MAX_NONCES) {
@@ -465,15 +482,13 @@ extern "C" int scanhash_randomx(int thr_id, struct work *work,
             work->sharediff[work->valid_nonces] =
                 h64 ? 18446744073709551616.0 / (double)h64 : 0.0;
             work->valid_nonces++;
-            n++;
             break;  /* submit immediately (same rationale as scrypt) */
         }
-        n++;
     }
 
     __atomic_fetch_sub(&g_rx_active_hashers, 1, __ATOMIC_RELEASE);
 
-    *hashes_done = (unsigned long)(n - first);
-    work->data[RANDOMX_NONCE_WORD] = n;
+    *hashes_done = (unsigned long)done;
+    work->data[RANDOMX_NONCE_WORD] = counter + done;
     return work->valid_nonces;
 }

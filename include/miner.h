@@ -101,6 +101,12 @@ struct work {
     // submits the 32-byte hash, not just the nonce.
     uint16_t rx_blob_len;
     uint8_t rx_hash[MAX_NONCES][32];
+    // Which bits of the 4-byte blob nonce this miner owns. 0 = the whole
+    // 32-bit space (normal pools). In nicehash mode the pool/proxy owns the
+    // top byte — it pre-sets blob byte 42 to hand each connected worker its
+    // own slice — so the mask is RANDOMX_NICEHASH_NONCE_MASK and the bits
+    // outside it must be preserved exactly as the job delivered them.
+    uint32_t rx_nonce_mask;
 
     // Algorithm-specific scratch/state is attached only when required.
     struct verus_work_payload *verus;
@@ -164,6 +170,11 @@ struct stratum_ctx {
 
     int pooln;
     int is_verus_protocol;
+    /* RandomX: pool advertised the "nicehash" extension in its login reply
+     * (or --nicehash forced it), so it owns the nonce MSB. Re-evaluated on
+     * every login — a reconnect or a switch to a pool without the extension
+     * must not inherit the previous pool's mode. */
+    int xmr_nicehash;
     /* TLS session (stratum+ssl://): I/O goes through curl_easy_send/recv on
      * the CONNECT_ONLY handle instead of raw send/recv on the socket. Set
      * from the URL scheme on every connect (stratum_build_curl_url). */
@@ -235,6 +246,10 @@ extern bool opt_debug;
 extern bool opt_quiet;
 extern bool opt_benchmark;
 extern bool opt_protocol;
+/* RandomX: force nicehash nonce mode even if the pool does not advertise the
+ * "nicehash" extension. Normally auto-detected at login — see
+ * RANDOMX_NICEHASH_NONCE_MASK. */
+extern bool opt_nicehash;
 extern int opt_n_threads;
 extern int opt_timeout;
 extern int opt_retries;

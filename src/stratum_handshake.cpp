@@ -504,6 +504,32 @@ bool xmr_stratum_login(struct stratum_ctx *sctx, const char *user, const char *p
         stratum_set_authenticated(sctx, true);
         applog(LOG_INFO, "RandomX login OK for %s", user ? user : "");
 
+        /* Nonce ownership, decided BEFORE the first job is applied below —
+         * build_xmr_work() reads this flag to mask the scan range. Always
+         * recomputed from this reply so a reconnect (or a switch to a pool
+         * that does not advertise the extension) cannot inherit the previous
+         * pool's mode. xmrig's wire signal, same 24-bit mask. */
+        {
+            json_t *extensions = json_object_get(result, "extensions");
+            size_t ext_index;
+            json_t *ext_value;
+
+            sctx->xmr_nicehash = opt_nicehash ? 1 : 0;
+            if (json_is_array(extensions)) {
+                json_array_foreach(extensions, ext_index, ext_value) {
+                    const char *name = json_string_value(ext_value);
+                    if (name && !strcasecmp(name, "nicehash")) {
+                        sctx->xmr_nicehash = 1;
+                        break;
+                    }
+                }
+            }
+            if (sctx->xmr_nicehash)
+                applog(LOG_INFO, "RandomX: nicehash nonce mode%s — pool owns the nonce MSB, "
+                                 "scanning the low 24 bits",
+                       opt_nicehash ? " (forced by --nicehash)" : "");
+        }
+
         /* First job rides on the login reply. NOTE: this triggers the initial
          * RandomX dataset build (~14 s on 8 cores) before work is published. */
         if (json_is_object(job) && !xmr_stratum_handle_job(sctx, job)) {

@@ -31,6 +31,20 @@ struct work;
  * hold at least this many bytes. */
 #define RANDOMX_BLOB_MAX 256
 
+/* Byte offset of the 4-byte nonce inside the hashing blob (Monero layout,
+ * unchanged by the forks — everything ahead of it is Monero-shaped). */
+#define RANDOMX_NONCE_OFFSET 39
+
+/* Nicehash mode: the pool (NiceHash, an xmrig-proxy, or our own fee proxy)
+ * hands each connected worker a private slice of the nonce space by
+ * pre-setting the nonce's most-significant byte — blob byte 42 — in every
+ * job it sends, and expects the miner to vary only the low 24 bits. The
+ * slice is advisory: a miner that rewrites all four bytes silently scans
+ * the same nonces as every other worker on that job, and the pool rejects
+ * the later arrivals as duplicate shares. Signalled by "nicehash" in the
+ * login reply's "extensions" array (xmrig's mask is the same 0xFFFFFF). */
+#define RANDOMX_NICEHASH_NONCE_MASK 0x00FFFFFFu
+
 /* Initialize flags (JIT/AES autodetect, large-pages and SECURE fallbacks),
  * run the reference-vector self-test, and prepare per-thread VM slots.
  * Returns false if the self-test fails (wrong hashes — never mine). */
