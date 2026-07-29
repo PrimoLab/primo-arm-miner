@@ -150,6 +150,21 @@ static bool verus_use_fused_for_current_cpu(void)
 		if (g_cpu_cores[i].implementer == 0x51 &&
 		    g_cpu_cores[i].part_number == 0x001)
 			return true;
+		/* Qualcomm Kryo "Gold" cores are LICENSED ARM designs, so they track
+		 * their stock equivalent rather than behaving like a custom core:
+		 * Kryo 385 Gold (0x802, SDM845) IS a Cortex-A75 and measured +9.4% on
+		 * a Galaxy S9 (SM-G960U1, single-thread interleaved A/B, 2026-07-29)
+		 * against +9% for stock A75 above. Bit-exactness was confirmed on that
+		 * silicon first (VERUS_X2_SELFTEST=1, 75 s under load, zero
+		 * mismatches). Implementer-gated for the same reason as Oryon: 0x8xx
+		 * part numbers are Qualcomm's own numbering space.
+		 * NOT added: 0x804 (Kryo 4XX/5XX Gold/Prime, A76/A77-class, SD855/865)
+		 * — the same rationale predicts a win and the installed base is far
+		 * larger, but no device in the fleet can measure it, and this list
+		 * stays measured-only because Mongoose M4 was -24%. */
+		if (g_cpu_cores[i].implementer == 0x51 &&
+		    g_cpu_cores[i].part_number == 0x802)
+			return true;
 		switch (g_cpu_cores[i].part_number) {
 		case 0xD0A: /* Cortex-A75 — measured +9% */
 		case 0xD0B: /* Cortex-A76 — measured +5.9% */
