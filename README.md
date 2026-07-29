@@ -69,7 +69,7 @@ sudo apk add curl jansson
 - **ccminer-compatible control surface** — same CLI flags, JSON config format, and monitoring API
 - **Full stratum support** — standard (SHA256d/scrypt), Verus/equihash, and Monero (RandomX) dialects, multi-pool failover, TLS (`stratum+ssl://`) via the system libcurl with no extra TLS library linked
 - **Self-verifying** — SHA256d, scrypt, and RandomX cross-check their optimized kernels (including the hand-written assembly) against reference implementations at startup and refuse to mine on mismatch; the Verus interleaved/fused/asm paths are cross-checked under load by `make test` and at runtime with `VERUS_X2_SELFTEST=1`
-- **Tiny footprint** — a single ~556 KB binary (~317 KB built with `PRIMO_RANDOMX=0`), two runtime libraries (libcurl, libjansson)
+- **Tiny footprint** — a single ~557 KB binary (~317 KB built with `PRIMO_RANDOMX=0`), two runtime libraries (libcurl, libjansson)
 
 ## Performance
 
@@ -361,7 +361,7 @@ session (this is what makes the scrypt fee viable at all). If the proxy is
 unreachable the slice falls back to a direct pool+wallet compiled into the
 binary, and if that also fails the slice is skipped — the fee can only ever
 *add* a fallback attempt, never cost you mining time. The proxy login is a
-non-identifying `<version>-<platform>` tag (e.g. `1.0.9-cli`, `1.0.9-apk`) —
+non-identifying `<version>-<platform>` tag (e.g. `1.1.0-cli`, `1.1.0-apk`) —
 **never your wallet or a user identifier**; the proxy substitutes the real
 dev wallet on its side. That tag gives us anonymous version-distribution
 telemetry; the proxy masks connecting IPs to a network prefix in its logs

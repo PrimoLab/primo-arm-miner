@@ -21,6 +21,7 @@ For shorter copy-paste examples, see [`CONFIG_EXAMPLES.md`](CONFIG_EXAMPLES.md).
 | `cpu-affinity` | string or integer | CPU affinity mask. Accepts `-1`/`all`, decimal masks, or hex masks such as `0xf0`. |
 | `cpu-priority` | integer | Process priority level from `0` to `5`. |
 | `debug` | boolean | Enable debug logging. |
+| `nicehash` | boolean | RandomX only: the pool owns the nonce's top byte, so the miner scans just the low 24 bits. Auto-enabled when the pool advertises the `nicehash` extension at login (NiceHash, xmrig-proxy, mining proxies generally), so set this only if your pool assigns nonce slices without advertising them. |
 | `pass` | string | Worker password. Also used as the default pool password when `pools[]` entries omit `pass`. |
 | `protocol-dump` | boolean | Log raw stratum protocol messages. |
 | `quiet` | boolean | Reduce normal log output. |
