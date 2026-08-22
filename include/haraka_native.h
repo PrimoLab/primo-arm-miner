@@ -25,6 +25,10 @@ void haraka256_native(unsigned char *out, const unsigned char *in);
 // Haraka512 variants
 void haraka512_native(unsigned char *out, const unsigned char *in);
 void haraka512_keyed_native(unsigned char *out, const unsigned char *in, const uint8x16_t *rc);
+/* Full 32-byte output variant of the keyed finalizer. Cold path only —
+ * scanhash_verus uses it to resolve a candidate that passed the truncated
+ * word-7 prefilter into a real 256-bit hash. */
+void haraka512_keyed_full_native(unsigned char *out, const unsigned char *in, const uint8x16_t *rc);
 
 #ifdef __cplusplus
 }

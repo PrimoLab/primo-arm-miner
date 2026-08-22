@@ -18,8 +18,6 @@
 
 #include "clhash_native.h"
 #include "haraka_native.h"  // For aes_encrypt_round_native()
-#include "cpu_features.h"
-#include <string.h>
 
 // This translation unit is compiled twice: as-is it builds the "_asm" variant
 // (CLHASH_ASM_* default on); clhash_native_noasm.c #includes it with the suffix

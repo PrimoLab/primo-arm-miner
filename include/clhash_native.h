@@ -112,12 +112,15 @@ static inline uint64_t precompReduction64_native(uint64x2_t A) {
 // Runtime-selectable CLHash variants.
 //
 // The hot CLHash loop is compiled twice into distinct symbols: a "_asm" variant
-// with the wide-out-of-order-big-core hand-asm helpers (the CLHASH_ASM_* blocks
-// above) and a portable "_noasm" C variant. verus.cpp picks per thread by core
-// type (big core -> _asm, in-order/unknown -> _noasm) so a single binary is
-// optimal on every core — no rk3588-vs-generic build split. The two variants
-// are bit-identical; VERUS_X2_SELFTEST=1 references the _noasm path so it also
-// validates _asm == _noasm at runtime.
+// with the hand-asm helpers (the CLHASH_ASM_* blocks above) and a portable
+// "_noasm" C variant. verus.cpp picks per thread via
+// verus_use_asm_for_current_cpu(), which currently returns _asm on every core —
+// no core has shown an asm regression, so the blocklist there is empty. One
+// binary is optimal everywhere; there is no rk3588-vs-generic build split. The
+// _noasm build stays live as the forced VERUS_ASM=0 path and as the
+// cross-check reference: the two variants are bit-identical, and both
+// VERUS_X2_SELFTEST=1 and the full-hash resolution on every candidate share
+// reference _noasm, so they validate _asm == _noasm at runtime.
 //
 //   x1  = verusclhash_port2_2_native       single nonce / odd remainder
 //   x2  = verusclhash_port2_2_x2_native    two interleaved nonce chains

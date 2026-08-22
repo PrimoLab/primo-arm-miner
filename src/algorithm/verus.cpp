@@ -28,14 +28,6 @@
 #define VERUS_GPRAND_SLOTS VERUS_CLHASH_MUT_SLOTS
 #endif
 
-// Historical name: predates the runtime variant dispatch. Variants are now
-// selected per thread via function pointers (see scanhash_verus); the x1
-// loop's call site is constant-folded to a direct BL via its always_inline
-// helper. This define only gates the native haraka/clhash code paths.
-#ifndef USE_DIRECT_NATIVE_CALL
-#define USE_DIRECT_NATIVE_CALL 1
-#endif
-
 #include "miner.h"
 
 extern "C" {
@@ -67,8 +59,8 @@ constexpr size_t kMergedMiningPrefixBytes = 3;
 constexpr size_t kSolutionBytes = 1344;
 constexpr size_t kSerializedJobBytes = kHeaderBytes + kMergedMiningPrefixBytes + kSolutionBytes;
 constexpr size_t kStoredSolutionBytes = kMergedMiningPrefixBytes + kSolutionBytes;
-constexpr size_t kSolutionNonceOffset = 1332;
-constexpr size_t kNonceBytes = 15;
+constexpr size_t kSolutionNonceOffset = VERUS_SOLUTION_NONCE_OFFSET;
+constexpr size_t kNonceBytes = VERUS_NONCE_TAIL_BYTES;
 const unsigned char kMergedMiningPrefix[kMergedMiningPrefixBytes] = { 0xfd, 0x40, 0x05 };
 }  // namespace
 
@@ -348,14 +340,52 @@ static VERUS_ALWAYS_INLINE void compute_verus_hash(verus_clhash_x1_fn clhash_x1,
 	                    preserved_values, preserved_values_mirror);
 }
 
+/* Cold-path twin of compute_verus_hash: identical CLHash, but the keyed Haraka
+ * finalizer keeps all 32 output bytes instead of only word 7.
+ *
+ * Deliberately NOT always_inline and deliberately not folded into
+ * finalize_verus_hash: this runs once per candidate share (roughly once per
+ * 2^32/target[7] hashes), so it must stay out of the hot path entirely. It
+ * cannot simply re-finalize the buffer the scan loop already has, because
+ * CLHash mutates key slots for the duration of one hash and
+ * restore_cl_key_slots puts them back immediately after the finalizer — the
+ * round constants the keyed Haraka saw are gone by the time a candidate is
+ * examined. Replaying the whole hash reproduces them exactly (the same
+ * property VERUS_X2_SELFTEST already relies on). */
+static void compute_verus_hash_full(verus_clhash_x1_fn clhash_x1,
+	unsigned char *hash, unsigned char *cur_buf,
+	const unsigned char *nonce_bytes, verus_vec128_t * __restrict key_buffer,
+	uint16_t * __restrict mutated_slots, uint16_t * __restrict mirrored_slots,
+	verus_vec128_t * __restrict preserved_values,
+	verus_vec128_t * __restrict preserved_values_mirror)
+{
+	prepare_hash_buf(cur_buf, nonce_bytes);
+
+	const uint64_t intermediate = clhash_x1(key_buffer, cur_buf, kClHashKeyMask,
+	                                        mutated_slots, mirrored_slots,
+	                                        reinterpret_cast<uint64x2_t *>(preserved_values),
+	                                        reinterpret_cast<uint64x2_t *>(preserved_values_mirror));
+
+	memcpy(cur_buf + 47, &intermediate, 8);
+	memcpy(cur_buf + 55, &intermediate, 8);
+	memcpy(cur_buf + 63, &intermediate, 1);
+	haraka512_keyed_full_native(hash, cur_buf, key_buffer + (intermediate & kClHashKeyMask));
+
+	restore_cl_key_slots(mutated_slots, mirrored_slots, key_buffer, preserved_values,
+	                     preserved_values_mirror);
+}
+
 extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes, unsigned long *hashes_done)
 {
 	(void)thr_id;
 
 	// miner_init_algorithm_runtime() initializes the Verus runtime before worker
 	// threads start; keep a cold fallback here in case a future caller bypasses it.
-	if (__builtin_expect(!native_initialized, 0))
-		pthread_once(&native_init_once, init_native_functions);
+	// pthread_once is called unconditionally: gating it on the plain `bool`
+	// native_initialized is itself a data race, and pthread_once's own fast
+	// path is a single atomic load once initialization has happened. This is
+	// per scanhash call, not per hash.
+	pthread_once(&native_init_once, init_native_functions);
 	if (!native_available) {
 		*hashes_done = 0;
 		return 0;
@@ -420,20 +450,48 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	/* Validate a candidate hash and record it as a share. Returns true when
 	 * the comparison passed — i.e. the scan should stop (mirrors the
 	 * original goto-out semantics, including the slots-full case).
-	 * NOTE: only chash[7] is real. haraka512_keyed_native computes just the
-	 * 4 bytes the difficulty check needs, so words 0-6 hold the buffer's
-	 * zero-init, and the hash_le_target below effectively degenerates to
-	 * chash[7] <= target[7] (its lower words compare stale zeros against
-	 * the target's 0xff filler). Correctness holds because the pool
-	 * recomputes the full hash from the submitted nonce+solution; at worst
-	 * a share with word 7 exactly equal to target[7] can be submitted when
-	 * the true lower words would have failed (~2^-32-scale reject risk). */
+	 *
+	 * Only chash[7] is real on entry: haraka512_keyed_native computes just
+	 * the 4 bytes the difficulty prefilter needs (the oink70 truncation), so
+	 * words 0-6 hold the candidate buffer's zero-init. That is enough to
+	 * reject all but ~1 in 2^32/target[7] hashes, but NOT enough to decide
+	 * the real 256-bit comparison or to report a share difficulty — so every
+	 * candidate that clears the prefilter is re-hashed here with the full
+	 * keyed-Haraka output, and everything downstream uses that. */
 	auto try_record_share = [&](uint32_t *chash, const uint8_t *nspace) -> bool {
 		/* Cheap word-7 prefilter (hoisted target) rejects almost every
 		 * hash before the full compare; only near-solutions reach it. */
 		if (chash[7] > target_word_high)
 			return false;
-		if (!hash_le_target(chash, ptarget))
+
+		/* Cold path: resolve the candidate into a real 256-bit hash.
+		 * Referencing the portable _noasm CLHash makes this a free
+		 * asm-vs-portable cross-check on every share we are about to
+		 * submit. */
+		alignas(16) uint8_t full_scratch[kHashStateBytes];
+		alignas(16) uint32_t full_hash[8] = { 0 };
+		memcpy(full_scratch, blockhash_half, kHashStateBytes);
+		compute_verus_hash_full(verusclhash_port2_2_native_noasm,
+			(unsigned char *)full_hash, full_scratch, nspace, key_buffer,
+			mutated_slots, mirrored_slots, preserved_values,
+			preserved_values_mirror);
+
+		/* Invariant: the full finalizer's word 7 IS the truncated one. A
+		 * mismatch means the truncated path, the full path or the
+		 * asm/noasm CLHash pair disagree — drop the share rather than
+		 * submit something we cannot reproduce. */
+		if (full_hash[7] != chash[7]) {
+			applog(LOG_ERR,
+			       "Verus full-hash mismatch (word7 %08x vs %08x) - share dropped",
+			       full_hash[7], chash[7]);
+			return false;
+		}
+
+		/* The authoritative comparison, now over all 256 bits. Before this
+		 * the scan accepted on word 7 alone, so a hash with
+		 * word7 == target[7] but larger low words was submitted and came
+		 * back rejected by the pool's own full-hash check. */
+		if (!hash_le_target(full_hash, ptarget))
 			return false;
 		if (work->valid_nonces < MAX_NONCES) {
 			work->valid_nonces++;
@@ -451,7 +509,16 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 			int nonce = work->valid_nonces - 1;
 			memcpy(work_extra, solution_bytes, kStoredSolutionBytes);
 			memcpy(work_extra + kSolutionNonceOffset, nspace, kNonceBytes);
-			bn_store_share_difficulty(chash, work->target, work, nonce);
+			/* work_extra carries ONE solution, but an x2 pair can produce
+			 * two winners — the second would overwrite the first's tail
+			 * here, and since the header nonce word is constant within a
+			 * scanhash call the two submits would then serialize an
+			 * identical payload (accept + duplicate reject). Keep each
+			 * winner's tail so verus_stratum_submit can restore it. */
+			uint8_t *nonce_tail = miner_work_verus_nonce_tail(work, nonce);
+			if (nonce_tail)
+				memcpy(nonce_tail, nspace, kNonceBytes);
+			bn_store_share_difficulty(full_hash, work->target, work, nonce);
 			/* The header nonce field (word 30) is constant within a
 			 * scanhash call by design: blockhash_half is Haraka'd once
 			 * before the loop, and the per-hash search counter rides in
@@ -479,9 +546,12 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 	const bool use_fused = verus_use_fused_for_current_cpu();
 	const bool use_asm = verus_use_asm_for_current_cpu();
 
-	/* Per-thread CLHash variant: hand-asm on big cores, portable C otherwise.
-	 * The selftest below always references the portable _noasm x1, so
-	 * VERUS_X2_SELFTEST=1 also validates _asm == _noasm at runtime. */
+	/* Per-thread CLHash variant. The hand-asm build is the default on every
+	 * core (verus_use_asm_for_current_cpu has an empty regression blocklist);
+	 * the portable _noasm build stays compiled in as the forced VERUS_ASM=0
+	 * path and as the cross-check reference. The selftest below, and the
+	 * full-hash resolution in try_record_share, both reference the _noasm x1,
+	 * so they validate _asm == _noasm at runtime. */
 	const verus_clhash_x2_fn clhash_x2 = use_asm
 		? (use_fused ? verusclhash_port2_2_x2f_native_asm : verusclhash_port2_2_x2_native_asm)
 		: (use_fused ? verusclhash_port2_2_x2f_native_noasm : verusclhash_port2_2_x2_native_noasm);
@@ -500,8 +570,12 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 		while (scanned_hashes + 2 <= max_hashes &&
 		       !miner_work_restart_requested(work->restart_generation) &&
 		       !miner_should_abort()) {
-			((uint32_t *)(&nonce_space[11]))[0] = nonce_buf;
-			((uint32_t *)(&nonce_space_b[11]))[0] = nonce_buf + 1;
+			/* memcpy, not a uint32_t* store: &nonce_space[11] is not
+			 * 4-byte aligned, so the cast form is UB even though AArch64
+			 * tolerates it. Identical codegen (one STR). */
+			const uint32_t nonce_b = nonce_buf + 1;
+			memcpy(&nonce_space[11], &nonce_buf, 4);
+			memcpy(&nonce_space_b[11], &nonce_b, 4);
 
 			prepare_hash_buf(cur_a, nonce_space);
 			prepare_hash_buf(cur_b, nonce_space_b);
@@ -600,7 +674,7 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 				    (miner_work_restart_requested(work->restart_generation) ||
 				     miner_should_abort()))
 					break;
-				((uint32_t *)(&nonce_space[11]))[0] = nonce_buf;
+				memcpy(&nonce_space[11], &nonce_buf, 4);  /* see x2 note: unaligned */
 
 				compute_verus_hash(fn, (unsigned char *)candidate_hash,
 					(unsigned char *)blockhash_half, nonce_space, key_buffer,

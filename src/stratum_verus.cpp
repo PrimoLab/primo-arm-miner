@@ -462,6 +462,21 @@ bool verus_stratum_submit(struct pool_infos *pool, struct work *work)
 
     work->data[EQNONCE_OFFSET] = work->nonces[work->submit_nonce_id];
 
+    /* Restore THIS nonce's 15-byte solution tail. scanhash_verus writes the
+     * winning tail into work->extra once per winner, so when an x2 pair yields
+     * two winners only the second survives there. The header nonce word is
+     * constant within a scanhash call by design (the per-hash counter rides in
+     * the solution tail, not the header), so without this both submits would
+     * serialize a byte-identical payload: one accepted, one rejected as a
+     * duplicate, and the first winner never submitted at all. Only reachable
+     * at test-pool difficulties, but it is one memcpy to be correct. */
+    {
+        uint8_t *extra = miner_work_extra(work);
+        const uint8_t *tail = miner_work_verus_nonce_tail_const(work, work->submit_nonce_id);
+        if (extra && tail)
+            memcpy(extra + VERUS_SOLUTION_NONCE_OFFSET, tail, VERUS_NONCE_TAIL_BYTES);
+    }
+
     if (!build_verus_submit_view(sctx, work, &msg))
         return false;
     submit_id = stratum_submit_id_next(sctx);

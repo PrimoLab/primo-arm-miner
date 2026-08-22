@@ -39,6 +39,10 @@ extern "C" {
 #define MAX_PENDING_SUBMITS 256
 #define VERUS_WORK_EXTRA_SIZE 1388
 #define VERUS_WORK_SOLUTION_SIZE 1344
+// Offset of the miner-rolled 15-byte nonce tail inside the submitted Verus
+// solution payload (work->verus->extra), and its length.
+#define VERUS_SOLUTION_NONCE_OFFSET 1332
+#define VERUS_NONCE_TAIL_BYTES 15
 
 #if MAX_THREADS > UINT8_MAX
 #error "MAX_THREADS must fit in work.thread_id"
@@ -66,6 +70,11 @@ enum {
 struct verus_work_payload {
     uint8_t extra[VERUS_WORK_EXTRA_SIZE];
     uint8_t solution[VERUS_WORK_SOLUTION_SIZE];
+    // Per-winning-nonce copy of the 15-byte nonce tail that `extra` carries at
+    // VERUS_SOLUTION_NONCE_OFFSET. `extra` holds only one solution, so when an
+    // x2 pair produces two winners the second overwrites the first there; the
+    // submit path restores the right tail per submit_nonce_id from here.
+    uint8_t nonce_tail[MAX_NONCES][VERUS_NONCE_TAIL_BYTES];
 };
 
 // Internal work structure shared by the mining and stratum layers.
@@ -284,6 +293,8 @@ uint8_t *miner_work_solution(struct work *work);
 const uint8_t *miner_work_solution_const(const struct work *work);
 uint8_t *miner_work_extra(struct work *work);
 const uint8_t *miner_work_extra_const(const struct work *work);
+uint8_t *miner_work_verus_nonce_tail(struct work *work, int nonce);
+const uint8_t *miner_work_verus_nonce_tail_const(const struct work *work, int nonce);
 void miner_runtime_begin(void);
 void miner_runtime_end(void);
 void miner_runtime_publish_global_hashrate(double hashrate);

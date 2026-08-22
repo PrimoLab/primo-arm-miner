@@ -176,6 +176,20 @@ const uint8_t *miner_work_extra_const(const struct work *work)
     return (work && work->verus) ? work->verus->extra : NULL;
 }
 
+uint8_t *miner_work_verus_nonce_tail(struct work *work, int nonce)
+{
+    if (!work || !work->verus || nonce < 0 || nonce >= MAX_NONCES)
+        return NULL;
+    return work->verus->nonce_tail[nonce];
+}
+
+const uint8_t *miner_work_verus_nonce_tail_const(const struct work *work, int nonce)
+{
+    if (!work || !work->verus || nonce < 0 || nonce >= MAX_NONCES)
+        return NULL;
+    return work->verus->nonce_tail[nonce];
+}
+
 static int priority_to_nice_value(int priority_level)
 {
     switch (priority_level) {

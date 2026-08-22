@@ -36,7 +36,7 @@ set(PRIMO_PROFILE "rk3588" CACHE STRING "Device profile: rk3588 or generic")
 # Match the promoted ccminer baseline profile on this device.
 # The validated winner tuned for A55/A53-style codegen, not the earlier A76 profile.
 set(PRIMO_BASE_ARCH_FLAGS "-march=armv8-a+crypto -mtune=cortex-a53")
-set(PRIMO_COMMON_FLAGS "-O3 -ffinite-loops -ffast-math -D_REENTRANT -DUSE_DIRECT_NATIVE_CALL=1 -falign-functions=16 -fomit-frame-pointer -fpic -pthread -flto -fno-stack-protector -flax-vector-conversions -Wall")
+set(PRIMO_COMMON_FLAGS "-O3 -ffinite-loops -ffast-math -D_REENTRANT -falign-functions=16 -fomit-frame-pointer -fpic -pthread -flto -fno-stack-protector -flax-vector-conversions -Wall")
 if(PRIMO_PROFILE STREQUAL "generic")
     # The CLHash hand-asm is no longer profile-gated: it is compiled into both
     # clhash_native.c (_asm) and clhash_native_noasm.c (_noasm) and selected

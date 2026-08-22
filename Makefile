@@ -28,7 +28,7 @@ PROFILE ?= rk3588
 COMMON_CPPFLAGS = -flax-vector-conversions -I./include -I./src
 DEPFLAGS = -MMD -MP
 COMMON_OPT_FLAGS = -O3 -ffinite-loops -ffast-math
-COMMON_OPT_FLAGS += -D_REENTRANT -DUSE_DIRECT_NATIVE_CALL=1
+COMMON_OPT_FLAGS += -D_REENTRANT
 COMMON_OPT_FLAGS += -falign-functions=16 -fomit-frame-pointer -fpic
 COMMON_OPT_FLAGS += -pthread -flto -fno-stack-protector -Wall
 

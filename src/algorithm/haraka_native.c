@@ -39,7 +39,6 @@
 #include "haraka_native.h"
 #include "cpu_features.h"
 #include <string.h>
-#include <stdio.h>
 
 #ifdef __aarch64__
 
@@ -276,6 +275,66 @@ void haraka512_keyed_native(unsigned char *out, const unsigned char *in, const u
 #undef AES4_NATIVE
 }
 
+// Full-output twin of haraka512_keyed_native: same keyed permutation, but all
+// 32 output bytes are produced instead of only word 7.
+//
+// haraka512_keyed_native deliberately computes just the 4 bytes the scan's
+// difficulty prefilter needs (the oink70 truncation), which leaves a candidate
+// share with no real 256-bit hash to compare against the target or to derive a
+// share difficulty from. scanhash_verus calls this on the cold path — once per
+// candidate that passes the word-7 prefilter — to get the true hash.
+//
+// Written as the rc-parameterised twin of haraka512_perm_native plus
+// haraka512_native's feed-forward and truncated-output extraction, rather than
+// as a second hand-scheduled MIX network: this is the canonical Haraka512
+// shape, so it is checkable by inspection. The runtime invariant
+// full[7] == truncated[7] is asserted at every candidate in scanhash_verus.
+//
+// Reads rc[0..39]; haraka512_keyed_native reads up to rc[38], so this does not
+// widen the key-buffer walk beyond the existing VERUS_KEY_VECTORS bound.
+void haraka512_keyed_full_native(unsigned char *out, const unsigned char *in,
+                                 const uint8x16_t *rc) {
+    uint8x16_t s0, s1, s2, s3, tmp;
+    unsigned char buf[64];
+
+    s0 = vld1q_u8(in);
+    s1 = vld1q_u8(in + 16);
+    s2 = vld1q_u8(in + 32);
+    s3 = vld1q_u8(in + 48);
+
+    for (int i = 0; i < 5; i++) {
+        for (int j = 0; j < 2; j++) {
+            s0 = aes_encrypt_round_native(s0, rc[4*2*i + 4*j]);
+            s1 = aes_encrypt_round_native(s1, rc[4*2*i + 4*j + 1]);
+            s2 = aes_encrypt_round_native(s2, rc[4*2*i + 4*j + 2]);
+            s3 = aes_encrypt_round_native(s3, rc[4*2*i + 4*j + 3]);
+        }
+
+        tmp = unpack_lo_epi32_native(s0, s1);
+        s0 = unpack_hi_epi32_native(s0, s1);
+        s1 = unpack_lo_epi32_native(s2, s3);
+        s2 = unpack_hi_epi32_native(s2, s3);
+        s3 = unpack_lo_epi32_native(s0, s2);
+        s0 = unpack_hi_epi32_native(s0, s2);
+        s2 = unpack_hi_epi32_native(s1, tmp);
+        s1 = unpack_lo_epi32_native(s1, tmp);
+    }
+
+    vst1q_u8(buf, s0);
+    vst1q_u8(buf + 16, s1);
+    vst1q_u8(buf + 32, s2);
+    vst1q_u8(buf + 48, s3);
+
+    // Feed-forward, then the same truncated output map as haraka512_native.
+    for (int i = 0; i < 64; i++)
+        buf[i] = buf[i] ^ in[i];
+
+    memcpy(out,      buf + 8,  8);
+    memcpy(out + 8,  buf + 24, 8);
+    memcpy(out + 16, buf + 32, 8);
+    memcpy(out + 24, buf + 48, 8);
+}
+
 #else
 
 // Fallback implementations for non-ARM64 systems
@@ -293,6 +352,10 @@ void haraka512_native(unsigned char *out, const unsigned char *in) {
 }
 
 void haraka512_keyed_native(unsigned char *out, const unsigned char *in, const uint8x16_t *rc) {
+    memset(out, 0, 32);
+}
+
+void haraka512_keyed_full_native(unsigned char *out, const unsigned char *in, const uint8x16_t *rc) {
     memset(out, 0, 32);
 }
 
