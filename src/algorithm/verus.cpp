@@ -527,8 +527,9 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 			 * the header field, not the search counter. Do not "fix"
 			 * this to nonce_buf — both are independent fields of the
 			 * validated preimage. */
-			work->nonces[work->valid_nonces - 1] =
-				((uint32_t *)serialized_job)[kNonceWordIndex];
+			memcpy(&work->nonces[work->valid_nonces - 1],
+			       &serialized_job[kNonceWordIndex * sizeof(uint32_t)],
+			       sizeof(uint32_t));
 		}
 		return true;
 	};
