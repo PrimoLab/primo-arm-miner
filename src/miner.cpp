@@ -1260,7 +1260,15 @@ extern "C" void bn_store_share_difficulty(uint32_t* hash, uint32_t* target, stru
         hash_value = hash_value * word_base + (double)hash[word_index];
     }
 
-    work->sharediff[nonce] = (hash_value > 0.0) ? target_value / hash_value : 0.0;
+    // Absolute share difficulty, not the bare target/hash ratio: `targetdiff`
+    // is the pool's stratum difficulty and target/hash is how far past it this
+    // hash landed. Reporting only the ratio made every "Accepted share
+    // (diff X)" line and pools[].best_share read ~1.0 regardless of pool
+    // difficulty, and disagreed with the RandomX back end, which computes an
+    // absolute difficulty of its own (randomx_algo.cpp). ccminer's
+    // bn_set_target_ratio applies the same targetdiff factor.
+    double ratio = (hash_value > 0.0) ? target_value / hash_value : 0.0;
+    work->sharediff[nonce] = (work->targetdiff > 0.0) ? work->targetdiff * ratio : ratio;
 }
 
 int scanhash_dispatch(int thr_id, struct work *work, uint32_t max_hashes, unsigned long *hashes_done)
