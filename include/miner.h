@@ -75,6 +75,10 @@ struct verus_work_payload {
     // x2 pair produces two winners the second overwrites the first there; the
     // submit path restores the right tail per submit_nonce_id from here.
     uint8_t nonce_tail[MAX_NONCES][VERUS_NONCE_TAIL_BYTES];
+    // The full 256-bit hash try_record_share validated this nonce against.
+    // Diagnostic only (PRIMO_VERUS_SUBMIT_VERIFY): lets the submit path log
+    // what we hashed next to what we actually put on the wire.
+    uint8_t full_hash[MAX_NONCES][32];
 };
 
 // Internal work structure shared by the mining and stratum layers.
@@ -295,6 +299,12 @@ uint8_t *miner_work_extra(struct work *work);
 const uint8_t *miner_work_extra_const(const struct work *work);
 uint8_t *miner_work_verus_nonce_tail(struct work *work, int nonce);
 const uint8_t *miner_work_verus_nonce_tail_const(const struct work *work, int nonce);
+uint8_t *miner_work_verus_full_hash(struct work *work, int nonce);
+const uint8_t *miner_work_verus_full_hash_const(const struct work *work, int nonce);
+/* Diagnostic: recompute the hash from the exact bytes being submitted and
+ * compare with the validated one. Returns true if they match. */
+bool verus_verify_submitted_payload(const uint32_t *header_words, const uint8_t *extra,
+                                    const uint8_t *expected_hash, uint32_t *out_hash);
 void miner_runtime_begin(void);
 void miner_runtime_end(void);
 void miner_runtime_publish_global_hashrate(double hashrate);

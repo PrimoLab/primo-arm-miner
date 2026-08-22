@@ -479,6 +479,56 @@ bool verus_stratum_submit(struct pool_infos *pool, struct work *work)
 
     if (!build_verus_submit_view(sctx, work, &msg))
         return false;
+
+    /* PRIMO_VERUS_SUBMIT_VERIFY=1: dump exactly what goes on the wire next to
+     * the hash try_record_share validated. ~0.26% of accepted-locally shares
+     * come back "low difficulty share of ~1e-4", meaning the pool recomputes a
+     * completely different hash from this payload - so the defect is in the
+     * mapping from hashed state to submitted fields, and this is the log that
+     * identifies WHICH field. Diagnostic only; off by default. */
+    {
+        static int verify_on = -1;
+        if (verify_on < 0) {
+            const char *e = getenv("PRIMO_VERUS_SUBMIT_VERIFY");
+            verify_on = (e && e[0] == '1') ? 1 : 0;
+        }
+        if (verify_on) {
+            const uint8_t *fh = miner_work_verus_full_hash_const(work, work->submit_nonce_id);
+            const uint8_t *ex = miner_work_extra_const(work);
+            const uint8_t *sol = miner_work_solution_const(work);
+            char noncefield[65] = {0}, tail[31] = {0}, hash[65] = {0}, restored[33] = {0};
+            cbin2hex(noncefield, (const char *)&work->data[27], 32);
+            if (ex) cbin2hex(tail, (const char *)(ex + VERUS_SOLUTION_NONCE_OFFSET),
+                             VERUS_NONCE_TAIL_BYTES);
+            if (fh) cbin2hex(hash, (const char *)fh, 32);
+            /* The 64 bytes build_verus_submit_view splices back into the wire
+             * solution from work->solution. It is the ONLY region where the
+             * submitted bytes differ from the hashed ones by design, so the
+             * self-consistency check above cannot cover it. Log its head. */
+            if (sol) cbin2hex(restored, (const char *)(sol + VERUS_RESTORED_SOLUTION_OFFSET), 16);
+            /* Recompute from the exact submitted bytes and compare. */
+            uint32_t recomputed[8] = { 0 };
+            bool selfconsistent = true;
+            char rehash[65] = {0};
+            if (fh && ex) {
+                selfconsistent = verus_verify_submitted_payload(work->data, ex, fh, recomputed);
+                cbin2hex(rehash, (const char *)recomputed, 32);
+            }
+            applog(LOG_INFO,
+                   "SUBMITDBG thr=%d id=%u diff=%.3f job=%s ver=%u mm=%u xn1=%u "
+                   "ntime=%s noncefield=%s tail=%s w32=%08x selfconsistent=%d "
+                   "restored=%s fullhash=%s rehash=%s",
+                   (int)work->thread_id, (unsigned)work->submit_nonce_id,
+                   work->sharediff[work->submit_nonce_id], work->job_id,
+                   sol ? (unsigned)sol[0] : 0u, sol ? (unsigned)sol[5] : 0u,
+                   (unsigned)sctx->xnonce1_size, msg.timehex, noncefield, tail,
+                   work->data[32], selfconsistent ? 1 : 0, restored, hash, rehash);
+            if (!selfconsistent)
+                applog(LOG_ERR, "SUBMITDBG PAYLOAD DIVERGES from validated hash (job %s thr %d)",
+                       work->job_id, (int)work->thread_id);
+        }
+    }
+
     submit_id = stratum_submit_id_next(sctx);
     request = stratum_build_submit_request_line(submit_id, pool->user, work->job_id,
                                                 msg.timehex, msg.noncestr, msg.solhex);

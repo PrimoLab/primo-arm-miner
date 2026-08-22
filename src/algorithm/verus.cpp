@@ -375,6 +375,59 @@ static void compute_verus_hash_full(verus_clhash_x1_fn clhash_x1,
 	                     preserved_values_mirror);
 }
 
+/* Diagnostic (PRIMO_VERUS_SUBMIT_VERIFY): recompute the hash from EXACTLY the
+ * bytes about to go on the wire — the 140-byte header in work->data and the
+ * 1347-byte solution payload in work->extra — and compare against the hash
+ * try_record_share validated.
+ *
+ * This deliberately does NOT model the pool's reconstruction (that would be
+ * guesswork). It reuses our own canonicalization, which is by definition the
+ * one that produces the 99.7% of shares the pool accepts. So it answers one
+ * clean question: is the submitted payload still self-consistent with the hash
+ * we validated? A failure means our state changed between hashing and
+ * submitting, or the wire mapping drops something. A pass means neither, and
+ * the fault lies in the pool's view of the job instead.
+ *
+ * Note nonce_space is taken from the payload's own tail, not rebuilt from the
+ * header — that is what the submitted solution actually carries. */
+extern "C" bool verus_verify_submitted_payload(const uint32_t *header_words,
+	const uint8_t *extra, const uint8_t *expected_hash, uint32_t *out_hash)
+{
+	if (!native_available || !header_words || !extra || !out_hash)
+		return true;  /* nothing to say */
+
+	/* NOT static: several miner threads can be inside verus_stratum_submit
+	 * at once. */
+	uint8_t rebuilt[kSerializedJobBytes];
+	uint8_t nonce_space[kNonceBytes];
+	memcpy(rebuilt, header_words, kHeaderBytes);
+	memcpy(rebuilt + kHeaderBytes, extra, kStoredSolutionBytes);
+
+	const uint8_t *sol = extra + kMergedMiningPrefixBytes;
+	if (sol[0] >= 7 && sol[5] > 0) {
+		memset(rebuilt + 4, 0, 96);
+		memset(rebuilt + 4 + 32 + 32 + 32 + 4, 0, 4);
+		memset(rebuilt + 4 + 32 + 32 + 32 + 4 + 4, 0, 32);
+		memset(rebuilt + kHeaderBytes + kMergedMiningPrefixBytes + 8, 0, 64);
+	}
+	memcpy(nonce_space, extra + kSolutionNonceOffset, kNonceBytes);
+
+	alignas(64) verus_vec128_t key_buffer[VERUS_KEY_VECTORS];
+	alignas(64) verus_vec128_t preserved[VERUS_GPRAND_SLOTS];
+	alignas(64) verus_vec128_t preserved_mirror[VERUS_GPRAND_SLOTS];
+	alignas(64) uint16_t mutated[VERUS_CLHASH_MUT_SLOTS];
+	alignas(64) uint16_t mirrored[VERUS_CLHASH_MUT_SLOTS];
+	alignas(16) uint8_t half[kHashStateBytes] = { 0 };
+
+	build_blockhash_half(half, rebuilt, kSerializedJobBytes);
+	generate_cl_key((unsigned char *)half, key_buffer);
+	compute_verus_hash_full(verusclhash_port2_2_native_noasm,
+		(unsigned char *)out_hash, half, nonce_space, key_buffer,
+		mutated, mirrored, preserved, preserved_mirror);
+
+	return expected_hash ? memcmp(out_hash, expected_hash, 32) == 0 : true;
+}
+
 extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes, unsigned long *hashes_done)
 {
 	(void)thr_id;
@@ -518,6 +571,9 @@ extern "C" int scanhash_verus(int thr_id, struct work *work, uint32_t max_hashes
 			uint8_t *nonce_tail = miner_work_verus_nonce_tail(work, nonce);
 			if (nonce_tail)
 				memcpy(nonce_tail, nspace, kNonceBytes);
+			uint8_t *fh = miner_work_verus_full_hash(work, nonce);
+			if (fh)
+				memcpy(fh, full_hash, 32);
 			bn_store_share_difficulty(full_hash, work->target, work, nonce);
 			/* The header nonce field (word 30) is constant within a
 			 * scanhash call by design: blockhash_half is Haraka'd once
