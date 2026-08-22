@@ -124,14 +124,32 @@ Uniform interface:
 | --- | --- | --- | --- | --- |
 | nonce location | `data[30]` | `data[19]` | `data[19]` | blob byte 39 (counter in a spare word) |
 | target format | `diff_to_target_verus` (equihash order) | `diff_to_target` | `diff_to_target`, pool diff ÷ 65536 | 64-bit boundary on hash's top 8 bytes |
-| hash vs target | word 7 only (see below) | LE 256-bit compare | LE 256-bit compare | top-64-bit compare |
+| hash vs target | word-7 prefilter, then a real LE 256-bit compare on the win path (see below) | LE 256-bit compare | LE 256-bit compare | top-64-bit compare |
 
 Per-algo facts that are easy to get wrong:
 
-- **Verus: only hash word 7 exists.** `haraka512_keyed_native` computes just
-  the 4 bytes the difficulty check needs; words 0–6 of every candidate hash
-  are the buffer's zero-init. Fine because the pool recomputes the full hash
-  from the submitted nonce + solution. Never compare or log the lower words.
+- **Verus: the scan produces only hash word 7; the win path re-hashes in
+  full.** `haraka512_keyed_native` computes just the 4 bytes the difficulty
+  prefilter needs, so words 0–6 of a *scanned* candidate are the buffer's
+  zero-init — never compare or log them. That is enough to reject all but
+  ~1 in `2^32/target[7]` hashes, but not enough to decide the 256-bit
+  comparison or report a share difficulty, so `try_record_share` re-hashes
+  every candidate that clears the prefilter through
+  `haraka512_keyed_full_native` and uses *that* hash for both
+  `hash_le_target` and the share difficulty.
+  The recompute is exact because CLHash restores every key slot it mutates,
+  so replaying a nonce reproduces its hash. It cannot re-finalize in place:
+  `restore_cl_key_slots` runs immediately after the keyed Haraka, so the
+  round constants are already gone. Cold path — measured a wash.
+- **Verus share difficulty is absolute.** `bn_store_share_difficulty` returns
+  `targetdiff × (target / hash)`, matching the RandomX back end; it once
+  stored the bare ratio and ignored `targetdiff`, making every reported diff
+  read ~1.0 regardless of pool difficulty.
+- **Triage hook for reject reports:** `PRIMO_VERUS_SUBMIT_VERIFY=1` logs each
+  submission's wire fields and recomputes the hash from those exact bytes, so
+  you can tell "the miner submits bad work" from "the pool disagrees with a
+  sound payload". Measured baseline: 0.38 % rejects over 3919 live
+  submissions, against a pool operator's stated 0–5 % normal range.
 - **Verus CLHash entry points are `noinline`** (LTO inlining them
   miscompiles under strict aliasing), and `prand`/`prandex` may alias
   (~6 % of hashes) — never `__restrict` them.
