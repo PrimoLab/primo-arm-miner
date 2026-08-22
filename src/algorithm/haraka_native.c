@@ -232,6 +232,52 @@ void haraka512_keyed_native(unsigned char *out, const unsigned char *in, const u
     s2 = vreinterpretq_s64_u8(aes_encrypt_round_native(vreinterpretq_u8_s64(s2), rc[(rci) + 2])); \
     s2 = vreinterpretq_s64_u8(aes_encrypt_round_native(vreinterpretq_u8_s64(s2), rc[(rci) + 6]));
 
+/* Two forms of the MIX4 permutation network, selected at build time.
+ *
+ * PRIMO_HARAKA_MIX4_ZIP=0 (default): the nested vcopyq_laneq_s32 lane-copy
+ * construction, 4 dependent INS per output vector.
+ *
+ * PRIMO_HARAKA_MIX4_ZIP=1: the same permutation expressed as the zip network
+ * haraka512_perm_native (and haraka512_keyed_full_native) already use. The two
+ * are provably identical — MIX4A/B's four outputs are exactly the perm's
+ * hi(a,c) / lo(b,t) / hi(b,t) / lo(a,c), and MIX4_LAST's val[1] is just the
+ * shared intermediate lo(s2,s3), with val[2] = hi(lo(s2,s3), lo(s0,s1)).
+ * (val[1] is then dead: AES4_LAST only touches its third argument.)
+ */
+#ifndef PRIMO_HARAKA_MIX4_ZIP
+#define PRIMO_HARAKA_MIX4_ZIP 1
+#endif
+
+#if PRIMO_HARAKA_MIX4_ZIP
+
+#define ZIP_LO_S64(a, b) vreinterpretq_s64_u8(unpack_lo_epi32_native( \
+    vreinterpretq_u8_s64(a), vreinterpretq_u8_s64(b)))
+#define ZIP_HI_S64(a, b) vreinterpretq_s64_u8(unpack_hi_epi32_native( \
+    vreinterpretq_u8_s64(a), vreinterpretq_u8_s64(b)))
+
+#define MIX4_ZIP_BODY(dst, s0, s1, s2, s3) do { \
+    int64x2_t _t = ZIP_LO_S64(s0, s1); \
+    int64x2_t _a = ZIP_HI_S64(s0, s1); \
+    int64x2_t _b = ZIP_LO_S64(s2, s3); \
+    int64x2_t _c = ZIP_HI_S64(s2, s3); \
+    dst.val[0] = ZIP_HI_S64(_a, _c); \
+    dst.val[1] = ZIP_LO_S64(_b, _t); \
+    dst.val[2] = ZIP_HI_S64(_b, _t); \
+    dst.val[3] = ZIP_LO_S64(_a, _c); \
+} while (0)
+
+#define MIX4A_NATIVE(s0, s1, s2, s3) MIX4_ZIP_BODY(n, s0, s1, s2, s3)
+#define MIX4B_NATIVE(s0, s1, s2, s3) MIX4_ZIP_BODY(s, s0, s1, s2, s3)
+
+#define MIX4_LAST_NATIVE(s0, s1, s2, s3) do { \
+    int64x2_t _b = ZIP_LO_S64(s2, s3); \
+    int64x2_t _t = ZIP_LO_S64(s0, s1); \
+    s.val[1] = _b; \
+    s.val[2] = ZIP_HI_S64(_b, _t); \
+} while (0)
+
+#else
+
 #define MIX4A_NATIVE(s0, s1, s2, s3) \
     n.val[0] = vreinterpretq_s64_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vreinterpretq_s32_s64(n.val[0]), 0, vreinterpretq_s32_s64(s0), 3), 1, vreinterpretq_s32_s64(s2), 3), 2, vreinterpretq_s32_s64(s1), 3), 3, vreinterpretq_s32_s64(s3), 3)); \
     n.val[1] = vreinterpretq_s64_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vreinterpretq_s32_s64(n.val[1]), 0, vreinterpretq_s32_s64(s2), 0), 1, vreinterpretq_s32_s64(s0), 0), 2, vreinterpretq_s32_s64(s3), 0), 3, vreinterpretq_s32_s64(s1), 0)); \
@@ -247,6 +293,8 @@ void haraka512_keyed_native(unsigned char *out, const unsigned char *in, const u
 #define MIX4_LAST_NATIVE(s0, s1, s2, s3) \
     s.val[1] = vreinterpretq_s64_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vreinterpretq_s32_s64(s.val[1]), 0, vreinterpretq_s32_s64(s2), 0), 1, vreinterpretq_s32_s64(s3), 0), 2, vreinterpretq_s32_s64(s2), 1), 3, vreinterpretq_s32_s64(s3), 1)); \
     s.val[2] = vreinterpretq_s64_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vcopyq_laneq_s32(vreinterpretq_s32_s64(s.val[2]), 0, vreinterpretq_s32_s64(s2), 1), 1, vreinterpretq_s32_s64(s0), 1), 2, vreinterpretq_s32_s64(s3), 1), 3, vreinterpretq_s32_s64(s1), 1));
+
+#endif  // PRIMO_HARAKA_MIX4_ZIP
 
     // Keep structure aligned with the portable implementation to preserve
     // codegen behavior in this hot keyed path.
@@ -271,6 +319,11 @@ void haraka512_keyed_native(unsigned char *out, const unsigned char *in, const u
 #undef MIX4_LAST_NATIVE
 #undef MIX4B_NATIVE
 #undef MIX4A_NATIVE
+#if PRIMO_HARAKA_MIX4_ZIP
+#undef MIX4_ZIP_BODY
+#undef ZIP_HI_S64
+#undef ZIP_LO_S64
+#endif
 #undef AES4_LAST_NATIVE
 #undef AES4_NATIVE
 }
