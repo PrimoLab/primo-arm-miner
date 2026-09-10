@@ -29,6 +29,7 @@
 #endif
 
 #include "miner.h"
+#include "sched_compat.h"
 
 extern "C" {
 #include "cpu_features.h"
@@ -127,6 +128,18 @@ static bool verus_use_fused_for_current_cpu(void)
 	if (e && e[0])
 		return e[0] != '0';
 
+#if defined(__APPLE__)
+	/* macOS has no sched_getcpu() equivalent (Apple's scheduler doesn't
+	 * expose which core a thread lands on), so the per-core MIDR lookup
+	 * below never runs here — default from direct measurement instead.
+	 * Fused wins uniformly on Apple Silicon's OoO cores: +19% on M1 Max
+	 * P-cores (13.82 -> 16.44 MH/s) and +14% spanning all 10 P+E cores
+	 * (15.33 -> 17.47 MH/s), 2026-07-07. Unlike the narrow in-order/
+	 * mid-OoO cores that lose to the jump table (Samsung Mongoose M4:
+	 * -24%), both Firestorm/Icestorm-class cores swallow it fine. */
+	return true;
+#else
+
 	int cpu = sched_getcpu();
 	if (cpu < 0)
 		return false;
@@ -186,6 +199,7 @@ static bool verus_use_fused_for_current_cpu(void)
 		}
 	}
 	return false;
+#endif
 }
 
 /* Function-pointer types for the runtime-selected CLHash variants. Top-level

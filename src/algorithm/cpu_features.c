@@ -3,6 +3,8 @@
 #ifdef __linux__
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
+#elif defined(__APPLE__)
+#include <sys/sysctl.h>
 #endif
 
 #include <pthread.h>
@@ -13,24 +15,44 @@
 // Global CPU capabilities
 cpu_capabilities_t g_cpu_caps = {0};
 
+#if defined(__APPLE__)
+static bool apple_sysctl_bool(const char *name) {
+    int32_t value = 0;
+    size_t size = sizeof(value);
+    if (sysctlbyname(name, &value, &size, NULL, 0) != 0)
+        return false;
+    return value != 0;
+}
+#endif
+
 cpu_capabilities_t detect_cpu_features(void) {
     cpu_capabilities_t caps = {0};
-    
+
 #ifdef __linux__
     // Get hardware capabilities from auxiliary vector
     unsigned long hwcap = getauxval(AT_HWCAP);
-    
+
     // Check for ARMv8 crypto extensions
     caps.has_aes = !!(hwcap & HWCAP_AES);
     caps.has_pmull = !!(hwcap & HWCAP_PMULL);
     caps.has_asimd = !!(hwcap & HWCAP_ASIMD);
-    
+
     // Both AES and PMULL required for full crypto support
     caps.has_armv8_crypto = caps.has_aes && caps.has_pmull && caps.has_asimd;
-    
+
+#elif defined(__APPLE__)
+    // macOS has no getauxval/HWCAP; query the equivalent sysctl feature
+    // flags instead (present on every Apple Silicon Mac — all ship with
+    // mandatory ARMv8 crypto extensions, but query rather than assume so a
+    // future/exotic target that lacks them is still handled correctly).
+    caps.has_aes = apple_sysctl_bool("hw.optional.arm.FEAT_AES");
+    caps.has_pmull = apple_sysctl_bool("hw.optional.arm.FEAT_PMULL");
+    caps.has_asimd = apple_sysctl_bool("hw.optional.neon");
+
+    caps.has_armv8_crypto = caps.has_aes && caps.has_pmull && caps.has_asimd;
+
 #else
-    // For non-Linux systems, assume no crypto support for safety
-    // Could add other platform detection here if needed
+    // For other non-Linux systems, assume no crypto support for safety
     caps.has_aes = false;
     caps.has_pmull = false;
     caps.has_asimd = false;

@@ -32,6 +32,13 @@
  * touch x0/w0, the B pointer in x0 is preserved throughout.
  */
 
+/* Mach-O C symbols carry a leading underscore that ELF does not. */
+#if defined(__APPLE__)
+#define C_SYM(x) _##x
+#else
+#define C_SYM(x) x
+#endif
+
     .text
     .align 6            /* 64-byte = cache line alignment */
 
@@ -131,9 +138,11 @@
  * Steps 1-3 are fused: Salsa #1 result stays in registers for the XOR,
  * and XOR result stays in registers for Salsa #2 (no redundant loads).
  *============================================================================*/
-    .global scrypt_blockmix_asm
+    .global C_SYM(scrypt_blockmix_asm)
+#if !defined(__APPLE__)
     .type   scrypt_blockmix_asm, %function
-scrypt_blockmix_asm:
+#endif
+C_SYM(scrypt_blockmix_asm):
     .cfi_startproc
 
     /* x19 is callee-saved (AAPCS64) and used as a scratch temp throughout
@@ -304,7 +313,9 @@ scrypt_blockmix_asm:
     .cfi_restore x19
     ret
     .cfi_endproc
+#if !defined(__APPLE__)
     .size   scrypt_blockmix_asm, .-scrypt_blockmix_asm
 
-/* Mark stack as non-executable */
+/* Mark stack as non-executable (ELF-only; Mach-O has no equivalent) */
     .section .note.GNU-stack,"",%progbits
+#endif

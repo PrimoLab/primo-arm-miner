@@ -18,6 +18,7 @@
 
 #include <pthread.h>
 #include <sched.h>
+#include "sched_compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
@@ -123,8 +124,13 @@ static void rx_init_dataset_mt(void)
             rx_unpin_current_thread();
             /* Low priority: init saturates every core for ~14 s (and recurs
              * on each ~2.8-day re-key) — keep the UI/stratum threads live.
-             * Costs nothing on an otherwise idle system. Best-effort. */
+             * Costs nothing on an otherwise idle system. Best-effort.
+             * gettid(2) is Linux-only; non-Linux hosts skip the per-thread
+             * demotion (setpriority(PRIO_PROCESS) there affects the whole
+             * process, not just this worker, so it isn't a safe substitute). */
+#if defined(__linux__)
             setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), 10);
+#endif
             randomx_init_dataset(g_dataset, g_cache, start, count);
         });
         start += count;

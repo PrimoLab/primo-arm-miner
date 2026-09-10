@@ -911,6 +911,7 @@ void scrypt_1024_1_1_256(const uint8_t *input, uint8_t *output,
 #ifndef SCRYPT_STANDALONE
 
 #include <sched.h>
+#include "sched_compat.h"
 
 #include "miner.h"
 #include "cpu_features.h"

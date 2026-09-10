@@ -24,12 +24,21 @@
 
     .arch armv8.2-a+crypto
 
+/* Mach-O C symbols carry a leading underscore that ELF does not. */
+#if defined(__APPLE__)
+#define C_SYM(x) _##x
+#else
+#define C_SYM(x) x
+#endif
+
     .text
     .balign 64
-    .global sha256d_dual_asm
+    .global C_SYM(sha256d_dual_asm)
+#if !defined(__APPLE__)
     .type sha256d_dual_asm, %function
+#endif
 
-sha256d_dual_asm:
+C_SYM(sha256d_dual_asm):
     /*
      * Register allocation:
      *
@@ -65,10 +74,19 @@ sha256d_dual_asm:
 
     /* Load permanent values */
     ld1     {v24.4s, v25.4s}, [x0]          /* midstate */
+#if defined(__APPLE__)
+    /* Mach-O has no GNU `:lo12:` relocation; the equivalent page/offset
+     * pair is spelled with @PAGE/@PAGEOFF suffixes instead. */
+    adrp    x7, K256_asm@PAGE
+    add     x7, x7, K256_asm@PAGEOFF
+    adrp    x8, H256_INIT_asm@PAGE
+    add     x8, x8, H256_INIT_asm@PAGEOFF
+#else
     adrp    x7, K256_asm
     add     x7, x7, :lo12:K256_asm
     adrp    x8, H256_INIT_asm
     add     x8, x8, :lo12:H256_INIT_asm
+#endif
     ld1     {v26.4s, v27.4s}, [x8]          /* H256_INIT */
     ld1     {v28.4s, v29.4s}, [x2]          /* W2_pad */
 
@@ -750,17 +768,25 @@ sha256d_dual_asm:
 
     ret
 
+#if !defined(__APPLE__)
     .size sha256d_dual_asm, . - sha256d_dual_asm
+#endif
 
 
 /*
  * Data tables
  */
+#if defined(__APPLE__)
+    .section __TEXT,__const
+#else
     .section .rodata
+#endif
     .balign 64
 
     .global K256_asm
+#if !defined(__APPLE__)
     .type K256_asm, %object
+#endif
 K256_asm:
     .word 0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5  /* rounds 0-3   */
     .word 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5  /* rounds 4-7   */
@@ -778,14 +804,20 @@ K256_asm:
     .word 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3  /* rounds 52-55 */
     .word 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208  /* rounds 56-59 */
     .word 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2  /* rounds 60-63 */
+#if !defined(__APPLE__)
     .size K256_asm, . - K256_asm
+#endif
 
     .global H256_INIT_asm
+#if !defined(__APPLE__)
     .type H256_INIT_asm, %object
+#endif
 H256_INIT_asm:
     .word 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a
     .word 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+#if !defined(__APPLE__)
     .size H256_INIT_asm, . - H256_INIT_asm
 
-    /* GNU stack note: no executable stack needed */
+    /* GNU stack note: no executable stack needed (ELF-only; Mach-O has no equivalent) */
     .section .note.GNU-stack,"",@progbits
+#endif
